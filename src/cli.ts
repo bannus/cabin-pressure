@@ -1,11 +1,12 @@
 import { tinyReadableCabin, withLevelOverrides } from "./config";
-import { summarize, tick, createInitialState } from "./simulation";
+import { assignPassengerToLavatory, summarize, tick, createInitialState } from "./simulation";
 
 interface CliOptions {
   seed?: number;
   duration?: number;
   dt: number;
   summaryInterval: number;
+  assignments: Array<{ passengerId: string; lavatoryId: string }>;
 }
 
 const options = parseArgs(process.argv.slice(2));
@@ -14,14 +15,18 @@ const config = withLevelOverrides(tinyReadableCabin, {
   durationSeconds: options.duration
 });
 const state = createInitialState(config);
+for (const assignment of options.assignments) {
+  assignPassengerToLavatory(state, assignment.passengerId, assignment.lavatoryId);
+}
 let nextSummaryAt = 0;
 let printedEvents = 0;
 
-console.log(`Cabin Pressure milestone 1 simulation`);
+console.log(`Cabin Pressure milestone 2 simulation`);
 console.log(`Level: ${config.name} (${config.id})`);
 console.log(`Seed: ${config.seed}`);
 console.log(`Duration: ${config.durationSeconds}s`);
 console.log(`Passengers: ${state.passengers.length}`);
+console.log(`Lavatories: ${state.lavatories.map((lavatory) => lavatory.id).join(", ")}`);
 console.log("");
 
 while (state.status === "running") {
@@ -56,6 +61,16 @@ function printSummary(): void {
       )}%`
   );
   console.log(`  urgent: ${urgent}`);
+  console.log(
+    `  lavs: ${summary.lavatories
+      .map(
+        (lavatory) =>
+          `${lavatory.id} occupant=${lavatory.occupantPassengerId ?? "-"} queue=[${lavatory.queue.join(
+            ","
+          )}]`
+      )
+      .join("; ")}`
+  );
 }
 
 function printNewEvents(): void {
@@ -68,7 +83,8 @@ function printNewEvents(): void {
 function parseArgs(args: string[]): CliOptions {
   const parsed: CliOptions = {
     dt: 0.1,
-    summaryInterval: 10
+    summaryInterval: 10,
+    assignments: []
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -85,6 +101,14 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
     } else if (arg === "--summary-interval" && value !== undefined) {
       parsed.summaryInterval = Number(value);
+      index += 1;
+    } else if (arg === "--assign" && value !== undefined) {
+      const assignmentParts = value.split(":");
+      if (assignmentParts.length !== 2 || assignmentParts.some((part) => part.length === 0)) {
+        throw new Error("--assign must use PASSENGER_ID:LAVATORY_ID");
+      }
+      const [passengerId, lavatoryId] = assignmentParts;
+      parsed.assignments.push({ passengerId, lavatoryId });
       index += 1;
     } else {
       throw new Error(`Unknown or incomplete option: ${arg}`);

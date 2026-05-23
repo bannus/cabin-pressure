@@ -29,6 +29,15 @@ Can run a 180s flight and see who would fail without intervention.
 Add send-to-lav commands, abstract walking time, lav queues, lav duration, return
 to seat, and rerouting.
 
+Implemented features:
+
+- `assignPassengerToLavatory` command
+- abstract walking time based on passenger row and lavatory row
+- lavatory occupancy and FIFO queues
+- deterministic lavatory use duration ranges
+- return-to-seat state after use
+- rerouting before lavatory use
+
 ## Milestone 2.5: Minimal browser debugger
 
 Add the browser debugger here rather than waiting for the original UI milestone.
@@ -44,6 +53,8 @@ Initial scope:
 - pause, play, and speed controls
 - seed/config display
 - event log
+
+Implemented as `npm run debugger`.
 
 ## Milestone 3: Physical aisle movement
 

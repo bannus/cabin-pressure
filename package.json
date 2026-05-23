@@ -5,6 +5,7 @@
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc",
+    "debugger": "npm run build --silent && node dist/src/debug-server.js",
     "simulate": "npm run build --silent && node dist/src/cli.js",
     "start": "node dist/src/cli.js",
     "test": "npm run build --silent && node --test dist/tests/*.test.js"

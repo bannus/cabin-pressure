@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cabin Pressure Debugger</title>
+    <link rel="stylesheet" href="debugger.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">Milestone 2.5</p>
+        <h1>Cabin Pressure Debugger</h1>
+      </div>
+      <div class="controls" aria-label="simulation controls">
+        <button id="playPause" type="button">Pause</button>
+        <label>
+          Speed
+          <select id="speed">
+            <option value="1">1x</option>
+            <option value="2" selected>2x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+          </select>
+        </label>
+        <button id="step" type="button">Step</button>
+        <button id="reset" type="button">Reset</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel cabin-panel">
+        <div class="panel-heading">
+          <h2>Cabin</h2>
+          <p id="clock"></p>
+        </div>
+        <div id="cabin" class="cabin" aria-label="schematic cabin grid"></div>
+      </section>
+
+      <aside class="panel sidebar">
+        <section>
+          <h2>Selected passenger</h2>
+          <div id="selectedPassenger" class="selected-passenger">Select a passenger.</div>
+          <div id="assignmentButtons" class="assignment-buttons"></div>
+        </section>
+
+        <section>
+          <h2>Lavatory queues</h2>
+          <div id="lavatories"></div>
+        </section>
+
+        <section>
+          <h2>Seed / config</h2>
+          <pre id="config"></pre>
+        </section>
+      </aside>
+
+      <section class="panel log-panel">
+        <h2>Event log</h2>
+        <ol id="eventLog"></ol>
+      </section>
+    </main>
+
+    <script src="debugger.js"></script>
+  </body>
+</html>
