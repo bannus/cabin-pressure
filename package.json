@@ -1,16 +1,23 @@
 {
   "name": "cabin-pressure",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Deterministic cabin logistics simulation prototype.",
+  "main": "dist/src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "simulate": "npm run build --silent && node dist/src/cli.js",
+    "start": "node dist/src/cli.js",
+    "test": "npm run build --silent && node --test dist/tests/*.test.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bannus/cabin-pressure.git"
   },
-  "keywords": [],
+  "keywords": [
+    "simulation",
+    "game",
+    "typescript"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",

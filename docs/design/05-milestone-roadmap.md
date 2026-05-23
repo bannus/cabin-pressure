@@ -1,0 +1,62 @@
+# Milestone roadmap
+
+## Milestone 0: Pure data model
+
+Create and print a cabin with seeded passenger generation and bladder levels.
+
+## Milestone 1: Bladder and win/loss sim
+
+Simulate urgency over time.
+
+Implemented features:
+
+- bladder fill
+- archetypes
+- request state
+- panic state
+- strikes
+- landing win condition
+- CLI output
+
+Success condition:
+
+```text
+Can run a 180s flight and see who would fail without intervention.
+```
+
+## Milestone 2: Lavatory assignment without physical seats
+
+Add send-to-lav commands, abstract walking time, lav queues, lav duration, return
+to seat, and rerouting.
+
+## Milestone 3: Physical aisle movement
+
+Add aisle cells, passenger movement, passing slowdown, and queue positions.
+
+## Milestone 4: Seat blockers
+
+Add inner-seat dependencies, blockers standing into the aisle, stand/sit timers,
+and stand cooldowns.
+
+## Milestone 5: Beverage cart
+
+Add a physical cart, row service, delayed bladder-rate modifiers, and debug
+triggers.
+
+## Milestone 6: Turbulence and seat belt sign
+
+Add warning phase, possible seat belt sign, forced returns, movement lockout, and
+debug triggers.
+
+## Milestone 7: Baby diaper events
+
+Add baby-attached adult events with long lavatory usage and indicators.
+
+## Milestone 8: Browser playtest UI
+
+Add clickable seats, lav assignment, queue view, time controls, debug buttons,
+config picker, and seed input.
+
+## Milestone 9: Automated bot runs
+
+Add a consistent bot, batch simulation, result output, and config comparison.
