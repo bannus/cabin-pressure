@@ -37,6 +37,7 @@ export function withLevelOverrides(
 ): LevelConfig {
   return {
     ...config,
-    ...overrides
+    seed: overrides.seed ?? config.seed,
+    durationSeconds: overrides.durationSeconds ?? config.durationSeconds
   };
 }

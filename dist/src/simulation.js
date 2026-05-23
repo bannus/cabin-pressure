@@ -53,8 +53,8 @@ function tick(state, dt) {
     }
     state.time = Math.min(state.time + dt, state.config.durationSeconds);
     for (const passenger of state.passengers) {
-        updatePassengerBladder(state, passenger, dt);
-        if (state.status === "lost") {
+        const lost = updatePassengerBladder(state, passenger, dt);
+        if (lost) {
             break;
         }
     }
@@ -128,8 +128,10 @@ function updatePassengerBladder(state, passenger, dt) {
         if (state.strikes >= state.config.loss.maxStrikes) {
             state.status = "lost";
             addEvent(state, "loss", `Flight failed after ${state.strikes} strike(s).`);
+            return true;
         }
     }
+    return false;
 }
 function nextPassengerState(state, passenger, percent) {
     if (percent >= 1) {
