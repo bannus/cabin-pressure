@@ -103,10 +103,11 @@ function parseArgs(args: string[]): CliOptions {
       parsed.summaryInterval = Number(value);
       index += 1;
     } else if (arg === "--assign" && value !== undefined) {
-      const [passengerId, lavatoryId] = value.split(":");
-      if (passengerId === undefined || lavatoryId === undefined) {
+      const assignmentParts = value.split(":");
+      if (assignmentParts.length !== 2 || assignmentParts.some((part) => part.length === 0)) {
         throw new Error("--assign must use PASSENGER_ID:LAVATORY_ID");
       }
+      const [passengerId, lavatoryId] = assignmentParts;
       parsed.assignments.push({ passengerId, lavatoryId });
       index += 1;
     } else {

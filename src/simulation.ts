@@ -317,6 +317,7 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
       );
     }
     if (nextState === "Panic") {
+      abandonLavatoryAssignment(state, passenger);
       passenger.panicSeconds = 0;
       addEvent(
         state,
@@ -366,15 +367,15 @@ function nextPassengerState(
   passenger: Passenger,
   percent: number
 ): PassengerState {
+  if (percent >= 1) {
+    return "Panic";
+  }
   if (
     passenger.state === "WalkingToLavatory" ||
     passenger.state === "QueuedForLavatory" ||
     passenger.state === "ReturningToSeat"
   ) {
     return passenger.state;
-  }
-  if (percent >= 1) {
-    return "Panic";
   }
   if (passenger.state === "Panic") {
     return "Panic";
@@ -503,6 +504,13 @@ function removeFromLavatoryQueue(state: SimulationState, passengerId: string): v
   for (const lavatory of state.lavatories) {
     lavatory.queue = lavatory.queue.filter((queuedPassengerId) => queuedPassengerId !== passengerId);
   }
+}
+
+function abandonLavatoryAssignment(state: SimulationState, passenger: Passenger): void {
+  passenger.assignedLavatoryId = undefined;
+  passenger.movementSecondsRemaining = 0;
+  passenger.lavatorySecondsRemaining = 0;
+  removeFromLavatoryQueue(state, passenger.id);
 }
 
 function requireAssignedLavatory(passenger: Passenger): string {

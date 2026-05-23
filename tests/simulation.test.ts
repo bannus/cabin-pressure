@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import test from "node:test";
 import { tinyReadableCabin } from "../src/config";
 import { assignPassengerToLavatory, createInitialState, runSimulation, tick } from "../src/simulation";
@@ -201,4 +203,84 @@ test("lavatory assignments queue and can reroute before use", () => {
   assert.equal(state.passengers[1]?.state, "UsingLavatory");
   assert.equal(state.lavatories[1]?.occupantPassengerId, "P002");
   assert.equal(state.events.at(-2)?.type, "lavatoryRerouted");
+});
+
+test("passengers can panic while walking to a lavatory", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 10,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 1 }]
+    },
+    passengerMix: { normal: 1 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.99, 0.99],
+      baseFillPerSecond: 4
+    },
+    lavatory: {
+      minimumWalkSeconds: 5,
+      walkSecondsPerRow: 0,
+      useDurationSeconds: [2, 2]
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P001", "front");
+  tick(state, 0.25);
+
+  assert.equal(state.passengers[0]?.state, "Panic");
+  assert.equal(state.passengers[0]?.assignedLavatoryId, undefined);
+  assert.equal(state.passengers[0]?.movementSecondsRemaining, 0);
+  assert.equal(state.events.at(-1)?.type, "panic");
+});
+
+test("passengers can panic while queued for a lavatory", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 10,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A", "B"],
+      lavatories: [{ id: "front", row: 1 }]
+    },
+    passengerMix: { normal: 2 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.99, 0.99],
+      baseFillPerSecond: 4
+    },
+    lavatory: {
+      minimumWalkSeconds: 1,
+      walkSecondsPerRow: 0,
+      useDurationSeconds: [5, 5]
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P001", "front");
+  assignPassengerToLavatory(state, "P002", "front");
+  tick(state, 1);
+
+  assert.equal(state.passengers[1]?.state, "Panic");
+  assert.equal(state.passengers[1]?.assignedLavatoryId, undefined);
+  assert.deepEqual(state.lavatories[0]?.queue, []);
+  assert.equal(state.events.at(-1)?.type, "panic");
+});
+
+test("CLI rejects malformed lavatory assignments", () => {
+  const cliPath = join(__dirname, "../src/cli.js");
+
+  for (const assignment of ["P001:", ":front", "P001:front:extra"]) {
+    const result = spawnSync(process.execPath, [cliPath, "--assign", assignment], {
+      encoding: "utf8"
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--assign must use PASSENGER_ID:LAVATORY_ID/);
+  }
 });
