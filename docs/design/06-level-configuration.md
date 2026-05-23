@@ -18,6 +18,9 @@ logic.
 - `bladder.baseFillPerSecond`
 - `bladder.requestThreshold`
 - `bladder.desperateThreshold`
+- `lavatory.minimumWalkSeconds`
+- `lavatory.walkSecondsPerRow`
+- `lavatory.useDurationSeconds`
 - `loss.panicGraceSeconds`
 - `loss.maxStrikes`
 - `loss.strikeRecoveryFillPercent`
@@ -65,6 +68,6 @@ leave the passenger close to another crisis.
 
 ## Future fields
 
-Later milestones should add lavatory duration ranges, row exit timings, movement
-speed, beverage service, turbulence events, weighted initial bladder
-distribution, and bot tuning parameters.
+Later milestones should add row exit timings, physical movement speed, beverage
+service, turbulence events, weighted initial bladder distribution, and bot
+tuning parameters.

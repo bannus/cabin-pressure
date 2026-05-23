@@ -6,12 +6,14 @@ escalating readable chaos.
 
 ## Current milestone
 
-Milestone 1 is implemented:
+Milestones 2 and 2.5 are implemented:
 
 - deterministic seeded passenger generation
 - bladder fill by passenger archetype
 - request, panic, strike, win, and loss states
-- CLI simulation output for an unattended flight
+- lavatory assignment, abstract walking, queues, use duration, returns, and rerouting
+- CLI simulation output with optional lavatory assignments
+- minimal browser debugger for cabin readability and lavatory queue playtesting
 
 ## Commands
 
@@ -19,13 +21,18 @@ Milestone 1 is implemented:
 npm run build
 npm test
 npm run simulate
+npm run debugger
 ```
 
 CLI options:
 
 ```sh
 npm run simulate -- --seed 42 --duration 180 --summary-interval 15
+npm run simulate -- --assign P001:front --assign P002:rear
 ```
+
+The browser debugger starts at `http://localhost:4173` by default. Set `PORT`
+to use another port.
 
 ## Design docs
 

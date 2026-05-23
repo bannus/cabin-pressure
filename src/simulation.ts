@@ -191,15 +191,6 @@ export function bladderPercent(passenger: Passenger): number {
 
 function updateLavatoryProgress(state: SimulationState, dt: number): void {
   for (const passenger of state.passengers) {
-    if (passenger.state === "WalkingToLavatory") {
-      passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - dt);
-      if (passenger.movementSecondsRemaining === 0) {
-        arriveAtLavatory(state, passenger);
-      }
-    }
-  }
-
-  for (const passenger of state.passengers) {
     if (passenger.state === "ReturningToSeat") {
       passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - dt);
       if (passenger.movementSecondsRemaining === 0) {
@@ -229,6 +220,15 @@ function updateLavatoryProgress(state: SimulationState, dt: number): void {
     }
 
     startNextQueuedPassenger(state, lavatory);
+  }
+
+  for (const passenger of state.passengers) {
+    if (passenger.state === "WalkingToLavatory") {
+      passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - dt);
+      if (passenger.movementSecondsRemaining === 0) {
+        arriveAtLavatory(state, passenger);
+      }
+    }
   }
 }
 
