@@ -1,6 +1,7 @@
 import { ARCHETYPES } from "./archetypes";
 import { SeededRng } from "./rng";
 import type {
+  Lavatory,
   LevelConfig,
   Passenger,
   PassengerArchetype,
@@ -42,7 +43,10 @@ export function createInitialState(config: LevelConfig): SimulationState {
       rawBladder: definition.capacity * initialFillPercent,
       state: initialFillPercent >= config.bladder.requestThreshold ? "NeedsToGo" : "Seated",
       panicSeconds: 0,
-      strikeCount: 0
+      strikeCount: 0,
+      movementSecondsRemaining: 0,
+      lavatorySecondsRemaining: 0,
+      lavatoryVisitCount: 0
     };
   });
 
@@ -52,6 +56,11 @@ export function createInitialState(config: LevelConfig): SimulationState {
     status: "running",
     strikes: 0,
     passengers,
+    lavatories: config.aircraft.lavatories.map((lavatory) => ({
+      id: lavatory.id,
+      row: lavatory.row,
+      queue: []
+    })),
     events: []
   };
 }
@@ -67,7 +76,13 @@ export function tick(state: SimulationState, dt: number): SimulationState {
 
   state.time = Math.min(state.time + dt, state.config.durationSeconds);
 
+  updateLavatoryProgress(state, dt);
+
   for (const passenger of state.passengers) {
+    if (passenger.state === "UsingLavatory") {
+      continue;
+    }
+
     const lost = updatePassengerBladder(state, passenger, dt);
     if (lost) {
       break;
@@ -87,6 +102,53 @@ export function runSimulation(config: LevelConfig, dt = 0.1): SimulationState {
 
   while (state.status === "running") {
     tick(state, dt);
+  }
+
+  return state;
+}
+
+export function assignPassengerToLavatory(
+  state: SimulationState,
+  passengerId: string,
+  lavatoryId: string
+): SimulationState {
+  if (state.status !== "running") {
+    throw new Error("cannot assign passengers after simulation has ended");
+  }
+
+  const passenger = findPassenger(state, passengerId);
+  const lavatory = findLavatory(state, lavatoryId);
+
+  if (passenger.state === "UsingLavatory" || passenger.state === "ReturningToSeat") {
+    throw new Error(`${passenger.id} cannot be reassigned while ${passenger.state}`);
+  }
+
+  const previousLavatoryId = passenger.assignedLavatoryId;
+  if (previousLavatoryId !== undefined) {
+    removeFromLavatoryQueue(state, passenger.id);
+  }
+
+  passenger.assignedLavatoryId = lavatory.id;
+  passenger.state = "WalkingToLavatory";
+  passenger.movementSecondsRemaining = walkSecondsForPassenger(state, passenger, lavatory);
+  passenger.lavatorySecondsRemaining = 0;
+
+  if (previousLavatoryId !== undefined && previousLavatoryId !== lavatory.id) {
+    addEvent(
+      state,
+      "lavatoryRerouted",
+      `${passenger.id} rerouted from ${previousLavatoryId} to ${lavatory.id}.`,
+      passenger.id,
+      lavatory.id
+    );
+  } else {
+    addEvent(
+      state,
+      "lavatoryAssigned",
+      `${passenger.id} assigned to ${lavatory.id} lavatory.`,
+      passenger.id,
+      lavatory.id
+    );
   }
 
   return state;
@@ -113,12 +175,127 @@ export function summarize(state: SimulationState, urgentLimit = 5): SimulationSu
     panicCount: state.passengers.filter((passenger) => passenger.state === "Panic").length,
     needsToGoCount: state.passengers.filter((passenger) => passenger.state === "NeedsToGo").length,
     averageBladderPercent,
+    lavatories: state.lavatories.map((lavatory) => ({
+      id: lavatory.id,
+      row: lavatory.row,
+      occupantPassengerId: lavatory.occupantPassengerId,
+      queue: [...lavatory.queue]
+    })),
     mostUrgent: urgency.slice(0, urgentLimit)
   };
 }
 
 export function bladderPercent(passenger: Passenger): number {
   return Math.min(passenger.rawBladder / passenger.capacity, 1);
+}
+
+function updateLavatoryProgress(state: SimulationState, dt: number): void {
+  for (const passenger of state.passengers) {
+    if (passenger.state === "WalkingToLavatory") {
+      passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - dt);
+      if (passenger.movementSecondsRemaining === 0) {
+        arriveAtLavatory(state, passenger);
+      }
+    }
+  }
+
+  for (const passenger of state.passengers) {
+    if (passenger.state === "ReturningToSeat") {
+      passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - dt);
+      if (passenger.movementSecondsRemaining === 0) {
+        passenger.assignedLavatoryId = undefined;
+        passenger.state =
+          bladderPercent(passenger) >= state.config.bladder.requestThreshold ? "NeedsToGo" : "Seated";
+        addEvent(
+          state,
+          "returned",
+          `${passenger.id} returned to ${passenger.row}${passenger.seat}.`,
+          passenger.id
+        );
+      }
+    }
+  }
+
+  for (const lavatory of state.lavatories) {
+    const occupant = lavatory.occupantPassengerId
+      ? state.passengers.find((passenger) => passenger.id === lavatory.occupantPassengerId)
+      : undefined;
+
+    if (occupant !== undefined) {
+      occupant.lavatorySecondsRemaining = Math.max(0, occupant.lavatorySecondsRemaining - dt);
+      if (occupant.lavatorySecondsRemaining === 0) {
+        finishLavatoryUse(state, lavatory, occupant);
+      }
+    }
+
+    startNextQueuedPassenger(state, lavatory);
+  }
+}
+
+function arriveAtLavatory(state: SimulationState, passenger: Passenger): void {
+  const lavatory = findLavatory(state, requireAssignedLavatory(passenger));
+  if (lavatory.occupantPassengerId === undefined && lavatory.queue.length === 0) {
+    startUsingLavatory(state, lavatory, passenger);
+    return;
+  }
+
+  passenger.state = "QueuedForLavatory";
+  passenger.movementSecondsRemaining = 0;
+  if (!lavatory.queue.includes(passenger.id)) {
+    lavatory.queue.push(passenger.id);
+  }
+  addEvent(
+    state,
+    "lavatoryQueued",
+    `${passenger.id} queued for ${lavatory.id} lavatory.`,
+    passenger.id,
+    lavatory.id
+  );
+}
+
+function startNextQueuedPassenger(state: SimulationState, lavatory: Lavatory): void {
+  if (lavatory.occupantPassengerId !== undefined) {
+    return;
+  }
+
+  const nextPassengerId = lavatory.queue.shift();
+  if (nextPassengerId === undefined) {
+    return;
+  }
+
+  startUsingLavatory(state, lavatory, findPassenger(state, nextPassengerId));
+}
+
+function startUsingLavatory(state: SimulationState, lavatory: Lavatory, passenger: Passenger): void {
+  lavatory.occupantPassengerId = passenger.id;
+  passenger.state = "UsingLavatory";
+  passenger.movementSecondsRemaining = 0;
+  passenger.panicSeconds = 0;
+  passenger.lavatorySecondsRemaining = lavatoryUseSeconds(state, passenger);
+  passenger.lavatoryVisitCount += 1;
+  addEvent(
+    state,
+    "lavatoryEntered",
+    `${passenger.id} entered ${lavatory.id} lavatory.`,
+    passenger.id,
+    lavatory.id
+  );
+}
+
+function finishLavatoryUse(state: SimulationState, lavatory: Lavatory, passenger: Passenger): void {
+  lavatory.occupantPassengerId = undefined;
+  passenger.rawBladder = 0;
+  passenger.panicSeconds = 0;
+  passenger.lavatorySecondsRemaining = 0;
+  passenger.state = "ReturningToSeat";
+  passenger.movementSecondsRemaining = walkSecondsForPassenger(state, passenger, lavatory);
+  addEvent(
+    state,
+    "lavatoryComplete",
+    `${passenger.id} finished using ${lavatory.id} lavatory.`,
+    passenger.id,
+    lavatory.id
+  );
 }
 
 function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt: number): boolean {
@@ -189,6 +366,13 @@ function nextPassengerState(
   passenger: Passenger,
   percent: number
 ): PassengerState {
+  if (
+    passenger.state === "WalkingToLavatory" ||
+    passenger.state === "QueuedForLavatory" ||
+    passenger.state === "ReturningToSeat"
+  ) {
+    return passenger.state;
+  }
   if (percent >= 1) {
     return "Panic";
   }
@@ -234,6 +418,9 @@ function validateConfig(config: LevelConfig): void {
   if (config.aircraft.seatLayout.length < 1) {
     throw new Error("aircraft.seatLayout must contain seats");
   }
+  if (config.aircraft.lavatories.length < 1) {
+    throw new Error("aircraft.lavatories must contain lavatories");
+  }
   if (config.durationSeconds <= 0) {
     throw new Error("durationSeconds must be positive");
   }
@@ -242,6 +429,15 @@ function validateConfig(config: LevelConfig): void {
   }
   if (config.bladder.initialFillRange[0] > config.bladder.initialFillRange[1]) {
     throw new Error("initialFillRange minimum must be <= maximum");
+  }
+  if (config.lavatory.minimumWalkSeconds < 0 || config.lavatory.walkSecondsPerRow < 0) {
+    throw new Error("lavatory walk timings must be non-negative");
+  }
+  if (config.lavatory.useDurationSeconds[0] <= 0 || config.lavatory.useDurationSeconds[1] <= 0) {
+    throw new Error("lavatory use duration must be positive");
+  }
+  if (config.lavatory.useDurationSeconds[0] > config.lavatory.useDurationSeconds[1]) {
+    throw new Error("lavatory use duration minimum must be <= maximum");
   }
   if (config.loss.maxStrikes < 1) {
     throw new Error("loss.maxStrikes must be at least 1");
@@ -256,20 +452,78 @@ function toUrgency(passenger: Passenger): PassengerUrgency {
     archetype: passenger.archetype,
     state: passenger.state,
     bladderPercent: bladderPercent(passenger),
-    strikeCount: passenger.strikeCount
+    strikeCount: passenger.strikeCount,
+    assignedLavatoryId: passenger.assignedLavatoryId
   };
+}
+
+function walkSecondsForPassenger(state: SimulationState, passenger: Passenger, lavatory: Lavatory): number {
+  return (
+    state.config.lavatory.minimumWalkSeconds +
+    Math.abs(passenger.row - lavatory.row) * state.config.lavatory.walkSecondsPerRow
+  );
+}
+
+function lavatoryUseSeconds(state: SimulationState, passenger: Passenger): number {
+  const [min, max] = state.config.lavatory.useDurationSeconds;
+  if (min === max) {
+    return min;
+  }
+
+  const hash = hashString(`${state.config.seed}:${passenger.id}:${passenger.lavatoryVisitCount}`);
+  return min + (max - min) * hash;
+}
+
+function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967296;
+}
+
+function findPassenger(state: SimulationState, passengerId: string): Passenger {
+  const passenger = state.passengers.find((candidate) => candidate.id === passengerId);
+  if (passenger === undefined) {
+    throw new Error(`Unknown passenger: ${passengerId}`);
+  }
+  return passenger;
+}
+
+function findLavatory(state: SimulationState, lavatoryId: string): Lavatory {
+  const lavatory = state.lavatories.find((candidate) => candidate.id === lavatoryId);
+  if (lavatory === undefined) {
+    throw new Error(`Unknown lavatory: ${lavatoryId}`);
+  }
+  return lavatory;
+}
+
+function removeFromLavatoryQueue(state: SimulationState, passengerId: string): void {
+  for (const lavatory of state.lavatories) {
+    lavatory.queue = lavatory.queue.filter((queuedPassengerId) => queuedPassengerId !== passengerId);
+  }
+}
+
+function requireAssignedLavatory(passenger: Passenger): string {
+  if (passenger.assignedLavatoryId === undefined) {
+    throw new Error(`${passenger.id} has no assigned lavatory`);
+  }
+  return passenger.assignedLavatoryId;
 }
 
 function addEvent(
   state: SimulationState,
   type: SimulationEvent["type"],
   message: string,
-  passengerId?: string
+  passengerId?: string,
+  lavatoryId?: string
 ): void {
   state.events.push({
     time: Number(state.time.toFixed(6)),
     type,
     passengerId,
+    lavatoryId,
     message
   });
 }

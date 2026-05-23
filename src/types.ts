@@ -4,7 +4,14 @@ export type PassengerArchetype =
   | "bigBladder"
   | "babyAttachedAdult";
 
-export type PassengerState = "Seated" | "NeedsToGo" | "Panic";
+export type PassengerState =
+  | "Seated"
+  | "NeedsToGo"
+  | "WalkingToLavatory"
+  | "QueuedForLavatory"
+  | "UsingLavatory"
+  | "ReturningToSeat"
+  | "Panic";
 
 export type SimulationStatus = "running" | "won" | "lost";
 
@@ -47,7 +54,14 @@ export interface LevelConfig {
   aircraft: AircraftConfig;
   passengerMix: PassengerMixConfig;
   bladder: BladderConfig;
+  lavatory: LavatorySystemConfig;
   loss: LossConfig;
+}
+
+export interface LavatorySystemConfig {
+  minimumWalkSeconds: number;
+  walkSecondsPerRow: number;
+  useDurationSeconds: [number, number];
 }
 
 export interface Passenger {
@@ -61,13 +75,36 @@ export interface Passenger {
   state: PassengerState;
   panicSeconds: number;
   strikeCount: number;
+  assignedLavatoryId?: string;
+  movementSecondsRemaining: number;
+  lavatorySecondsRemaining: number;
+  lavatoryVisitCount: number;
 }
 
 export interface SimulationEvent {
   time: number;
-  type: "request" | "panic" | "strike" | "win" | "loss";
+  type:
+    | "request"
+    | "panic"
+    | "strike"
+    | "lavatoryAssigned"
+    | "lavatoryRerouted"
+    | "lavatoryQueued"
+    | "lavatoryEntered"
+    | "lavatoryComplete"
+    | "returned"
+    | "win"
+    | "loss";
   passengerId?: string;
+  lavatoryId?: string;
   message: string;
+}
+
+export interface Lavatory {
+  id: string;
+  row: number;
+  occupantPassengerId?: string;
+  queue: string[];
 }
 
 export interface SimulationState {
@@ -76,6 +113,7 @@ export interface SimulationState {
   status: SimulationStatus;
   strikes: number;
   passengers: Passenger[];
+  lavatories: Lavatory[];
   events: SimulationEvent[];
 }
 
@@ -86,7 +124,15 @@ export interface SimulationSummary {
   panicCount: number;
   needsToGoCount: number;
   averageBladderPercent: number;
+  lavatories: LavatorySummary[];
   mostUrgent: PassengerUrgency[];
+}
+
+export interface LavatorySummary {
+  id: string;
+  row: number;
+  occupantPassengerId?: string;
+  queue: string[];
 }
 
 export interface PassengerUrgency {
@@ -97,4 +143,5 @@ export interface PassengerUrgency {
   state: PassengerState;
   bladderPercent: number;
   strikeCount: number;
+  assignedLavatoryId?: string;
 }

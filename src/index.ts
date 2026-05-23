@@ -1,9 +1,18 @@
 export { tinyReadableCabin, withLevelOverrides } from "./config";
-export { createInitialState, runSimulation, summarize, tick } from "./simulation";
+export {
+  assignPassengerToLavatory,
+  createInitialState,
+  runSimulation,
+  summarize,
+  tick
+} from "./simulation";
 export type {
   AircraftConfig,
   BladderConfig,
   LavatoryConfig,
+  Lavatory,
+  LavatorySummary,
+  LavatorySystemConfig,
   LevelConfig,
   LossConfig,
   Passenger,

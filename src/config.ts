@@ -24,6 +24,11 @@ export const tinyReadableCabin: LevelConfig = {
     requestThreshold: 0.7,
     desperateThreshold: 0.9
   },
+  lavatory: {
+    minimumWalkSeconds: 2,
+    walkSecondsPerRow: 0.75,
+    useDurationSeconds: [8, 14]
+  },
   loss: {
     panicGraceSeconds: 8,
     maxStrikes: 3,
