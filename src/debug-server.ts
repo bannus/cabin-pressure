@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { extname, normalize, relative, resolve } from "node:path";
 
 const port = Number(process.env.PORT ?? 4173);
-const publicRoot = resolve(__dirname, "../../public");
+const publicRoot = resolve(process.cwd(), "public");
 
 const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
