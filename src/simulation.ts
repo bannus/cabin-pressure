@@ -148,7 +148,9 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
         passenger.id
       );
     }
-  } else if (passenger.state === "Panic") {
+  }
+
+  if (passenger.state === "Panic") {
     passenger.panicSeconds += dt;
   }
 
