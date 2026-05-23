@@ -45,3 +45,13 @@ The original prototype brief has been split into focused documents:
 - [Systems and rules](docs/design/04-systems-and-rules.md)
 - [Milestone roadmap](docs/design/05-milestone-roadmap.md)
 - [Level configuration](docs/design/06-level-configuration.md)
+
+## GitHub Pages deployment
+
+A workflow is included at `.github/workflows/deploy-pages.yml` to publish the debugger from `public/` to GitHub Pages.
+
+1. In GitHub, open **Settings → Pages** and set **Source** to **GitHub Actions**.
+2. Push changes to `main` or `master` (or run the workflow manually from **Actions**).
+3. Open the deployed URL: `https://<your-username>.github.io/cabin-pressure/debugger.html`.
+
+This URL works on mobile, so you can test from your phone directly.
