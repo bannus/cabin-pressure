@@ -68,8 +68,8 @@ export function tick(state: SimulationState, dt: number): SimulationState {
   state.time = Math.min(state.time + dt, state.config.durationSeconds);
 
   for (const passenger of state.passengers) {
-    updatePassengerBladder(state, passenger, dt);
-    if (state.status === "lost") {
+    const lost = updatePassengerBladder(state, passenger, dt);
+    if (lost) {
       break;
     }
   }
@@ -121,7 +121,7 @@ export function bladderPercent(passenger: Passenger): number {
   return Math.min(passenger.rawBladder / passenger.capacity, 1);
 }
 
-function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt: number): void {
+function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt: number): boolean {
   passenger.rawBladder +=
     state.config.bladder.baseFillPerSecond * passenger.bladderRateMultiplier * dt;
 
@@ -175,8 +175,11 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
     if (state.strikes >= state.config.loss.maxStrikes) {
       state.status = "lost";
       addEvent(state, "loss", `Flight failed after ${state.strikes} strike(s).`);
+      return true;
     }
   }
+
+  return false;
 }
 
 function nextPassengerState(
