@@ -275,10 +275,12 @@ function aisle(row) {
 }
 
 function lavatoryMarker(id) {
-  const div = document.createElement("div");
+  const div = document.createElement("button");
   const lavatory = findLavatory(id);
+  div.type = "button";
   div.className = "lavatory-marker";
   div.textContent = `${id.toUpperCase()} LAV · occupant ${lavatory.occupant ?? "-"} · queue ${lavatory.queue.join(", ") || "-"}`;
+  div.addEventListener("click", () => assign(selectedPassengerId, id));
   return div;
 }
 
