@@ -29,6 +29,22 @@ Can run a 180s flight and see who would fail without intervention.
 Add send-to-lav commands, abstract walking time, lav queues, lav duration, return
 to seat, and rerouting.
 
+## Milestone 2.5: Minimal browser debugger
+
+Add the browser debugger here rather than waiting for the original UI milestone.
+The goal is to test whether the basic bathroom economy is readable and whether
+future congestion systems are visually funny.
+
+Initial scope:
+
+- schematic cabin grid
+- passenger bladder colors
+- passenger selection and lavatory assignment
+- lavatory queue display
+- pause, play, and speed controls
+- seed/config display
+- event log
+
 ## Milestone 3: Physical aisle movement
 
 Add aisle cells, passenger movement, passing slowdown, and queue positions.
@@ -52,10 +68,11 @@ debug triggers.
 
 Add baby-attached adult events with long lavatory usage and indicators.
 
-## Milestone 8: Browser playtest UI
+## Milestone 8: Expanded browser playtest UI
 
-Add clickable seats, lav assignment, queue view, time controls, debug buttons,
-config picker, and seed input.
+Expand the earlier debugger into a fuller playtest harness with debug buttons,
+config picker, seed input, richer inspection, and controls for carts,
+turbulence, and other later systems.
 
 ## Milestone 9: Automated bot runs
 
