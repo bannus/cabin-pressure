@@ -36,13 +36,19 @@ const config = {
     durationSeconds: [10, 16],
     seatBeltSignChance: 1,
     autoStartSeconds: 90
+  },
+  babyDiaper: {
+    firstEventSeconds: [35, 75],
+    repeatEventSeconds: [60, 100],
+    changeDurationSeconds: [20, 30]
   }
 };
 
 const archetypes = {
   normal: { capacity: 100, multiplier: 1 },
   smallBladder: { capacity: 75, multiplier: 1.2 },
-  bigBladder: { capacity: 130, multiplier: 0.85 }
+  bigBladder: { capacity: 130, multiplier: 0.85 },
+  babyAttachedAdult: { capacity: 100, multiplier: 1 }
 };
 
 let state = createState();
@@ -85,7 +91,8 @@ configElement.textContent = JSON.stringify(
     },
     seatBlockers: config.seatBlockers,
     beverageCart: config.beverageCart,
-    turbulence: config.turbulence
+    turbulence: config.turbulence,
+    babyDiaper: config.babyDiaper
   },
   null,
   2
@@ -135,9 +142,10 @@ function createState() {
   const rng = createRng(config.seed);
   const archetypeList = shuffle(
     [
-      ...Array(24).fill("normal"),
+      ...Array(22).fill("normal"),
       ...Array(4).fill("smallBladder"),
-      ...Array(4).fill("bigBladder")
+      ...Array(4).fill("bigBladder"),
+      ...Array(2).fill("babyAttachedAdult")
     ],
     rng
   );
@@ -171,7 +179,11 @@ function createState() {
         blockingPassengerId: undefined,
         beverageRateMultiplier: 1,
         beverageRateModifierStartSeconds: undefined,
-        beverageRateModifierEndSeconds: undefined
+        beverageRateModifierEndSeconds: undefined,
+        babyDiaperSecondsRemaining:
+          archetype === "babyAttachedAdult" ? babyDiaperEventSeconds(`first:${index + 1}`) : undefined,
+        babyDiaperNeedsChange: false,
+        babyDiaperChangeCount: 0
       });
     }
   }
@@ -207,6 +219,7 @@ function tick(dt) {
 
   updateTurbulence(dt);
   updateBeverageCart(dt);
+  updateBabyDiaper(dt);
   updateSeatBlockers(dt);
 
   for (const passenger of state.passengers) {
@@ -222,6 +235,14 @@ function tick(dt) {
       if (occupant.lavatorySecondsRemaining === 0) {
         lavatory.occupant = undefined;
         occupant.rawBladder = 0;
+        if (occupant.babyDiaperNeedsChange) {
+          occupant.babyDiaperNeedsChange = false;
+          occupant.babyDiaperChangeCount += 1;
+          occupant.babyDiaperSecondsRemaining = babyDiaperEventSeconds(
+            `repeat:${occupant.id}:${occupant.babyDiaperChangeCount}`
+          );
+          log(`${occupant.id}'s baby diaper was changed in ${lavatory.id} lavatory.`);
+        }
         occupant.state = "ReturningToSeat";
         occupant.queuePosition = undefined;
         startAisleMovement(occupant, occupant.row, lavatory.row);
@@ -253,6 +274,9 @@ function tick(dt) {
     if (passenger.state === "Seated" && percent >= config.requestThreshold) {
       passenger.state = "NeedsToGo";
       log(`${passenger.id} at ${passenger.row}${passenger.seat} needs to go.`);
+    }
+    if (passenger.state === "Seated" && passenger.babyDiaperNeedsChange) {
+      passenger.state = "NeedsToGo";
     }
     if (passenger.state !== "Panic" && percent >= 1) {
       abandonLavatoryAssignment(passenger);
@@ -561,7 +585,7 @@ function startUsing(lavatory, passenger) {
   passenger.movementSecondsRemaining = 0;
   passenger.movementStepSecondsRemaining = 0;
   passenger.visits += 1;
-  passenger.lavatorySecondsRemaining = range(createRng(hash(`${config.seed}:${passenger.id}:${passenger.visits}`)), config.useDurationSeconds[0], config.useDurationSeconds[1]);
+  passenger.lavatorySecondsRemaining = lavatoryUseSeconds(passenger);
   log(`${passenger.id} entered ${lavatory.id} lavatory.`);
 }
 
@@ -589,9 +613,13 @@ function render() {
 function seatButton(passenger) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `seat ${passenger.id === selectedPassengerId ? "selected" : ""}`;
+  button.className = `seat ${passenger.id === selectedPassengerId ? "selected" : ""} ${
+    passenger.babyDiaperNeedsChange ? "diaper-needed" : ""
+  }`;
   button.style.background = bladderColor(bladderPercent(passenger));
-  button.innerHTML = `${passenger.row}${passenger.seat}<span>${Math.round(bladderPercent(passenger) * 100)}%</span><span>${passenger.state}</span>`;
+  button.innerHTML = `${passenger.row}${passenger.seat}${
+    passenger.babyDiaperNeedsChange ? " 🍼" : ""
+  }<span>${Math.round(bladderPercent(passenger) * 100)}%</span><span>${passenger.state}</span>`;
   button.addEventListener("click", () => {
     selectedPassengerId = passenger.id;
     render();
@@ -622,7 +650,7 @@ function lavatoryMarker(id) {
 
 function renderSelected() {
   const passenger = findPassenger(selectedPassengerId);
-  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}<br>blocking: ${passenger.blockingPassengerId ?? "-"} · cooldown: ${passenger.standCooldownSecondsRemaining.toFixed(1)}s`;
+  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>diaper: ${passenger.babyDiaperNeedsChange ? "needs change" : passenger.babyDiaperSecondsRemaining === undefined ? "-" : `${passenger.babyDiaperSecondsRemaining.toFixed(1)}s`} · changes: ${passenger.babyDiaperChangeCount}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}<br>blocking: ${passenger.blockingPassengerId ?? "-"} · cooldown: ${passenger.standCooldownSecondsRemaining.toFixed(1)}s`;
   assignmentElement.innerHTML = "";
   for (const lavatory of state.lavatories) {
     const button = document.createElement("button");
@@ -803,6 +831,28 @@ function turbulenceDurationSeconds() {
   return min + (max - min) * (hash(`${config.seed}:turbulence:${state.time}:duration`) / 4294967296);
 }
 
+function updateBabyDiaper(dt) {
+  for (const passenger of state.passengers) {
+    if (
+      passenger.archetype !== "babyAttachedAdult" ||
+      passenger.babyDiaperNeedsChange ||
+      passenger.babyDiaperSecondsRemaining === undefined
+    ) {
+      continue;
+    }
+    passenger.babyDiaperSecondsRemaining = Math.max(0, passenger.babyDiaperSecondsRemaining - dt);
+    if (passenger.babyDiaperSecondsRemaining > 0) {
+      continue;
+    }
+    passenger.babyDiaperNeedsChange = true;
+    passenger.babyDiaperSecondsRemaining = undefined;
+    if (passenger.state === "Seated") {
+      passenger.state = "NeedsToGo";
+    }
+    log(`${passenger.id}'s baby needs a diaper change.`);
+  }
+}
+
 function updateBeverageCart(dt) {
   const cart = state.beverageCart;
   if (!cart) return;
@@ -908,6 +958,28 @@ function beverageRowServiceSeconds(serviceRowIndex) {
 
 function walkSeconds(passenger, lavatory) {
   return config.minimumWalkSeconds + Math.abs(passenger.row - lavatory.row) * config.walkSecondsPerRow;
+}
+
+function lavatoryUseSeconds(passenger) {
+  if (passenger.babyDiaperNeedsChange) {
+    const [min, max] = config.babyDiaper.changeDurationSeconds;
+    if (min === max) return min;
+    return min + (max - min) * (hash(`${config.seed}:${passenger.id}:baby-diaper:${passenger.babyDiaperChangeCount}`) / 4294967296);
+  }
+
+  return range(
+    createRng(hash(`${config.seed}:${passenger.id}:${passenger.visits}`)),
+    config.useDurationSeconds[0],
+    config.useDurationSeconds[1]
+  );
+}
+
+function babyDiaperEventSeconds(key) {
+  const [min, max] = key.startsWith("first:")
+    ? config.babyDiaper.firstEventSeconds
+    : config.babyDiaper.repeatEventSeconds;
+  if (min === max) return min;
+  return min + (max - min) * (hash(`${config.seed}:baby-diaper:${key}`) / 4294967296);
 }
 
 function startAisleMovement(passenger, destinationAisleRow, startingAisleRow = passenger.row) {

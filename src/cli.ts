@@ -21,7 +21,7 @@ for (const assignment of options.assignments) {
 let nextSummaryAt = 0;
 let printedEvents = 0;
 
-console.log(`Cabin Pressure milestone 6 simulation`);
+console.log(`Cabin Pressure milestone 7 simulation`);
 console.log(`Level: ${config.name} (${config.id})`);
 console.log(`Seed: ${config.seed}`);
 console.log(`Duration: ${config.durationSeconds}s`);
@@ -52,7 +52,7 @@ function printSummary(): void {
       (passenger) =>
         `${passenger.id} ${passenger.row}${passenger.seat} ${Math.round(
           passenger.bladderPercent * 100
-        )}% ${passenger.state}`
+        )}% ${passenger.state}${passenger.babyDiaperNeedsChange ? " diaper" : ""}`
     )
     .join("; ");
 

@@ -6,7 +6,7 @@ escalating readable chaos.
 
 ## Current milestone
 
-Milestones 2, 2.5, 3, 4, 5, and 6 are implemented:
+Milestones 2, 2.5, 3, 4, 5, 6, and 7 are implemented:
 
 - deterministic seeded passenger generation
 - bladder fill by passenger archetype
@@ -16,6 +16,7 @@ Milestones 2, 2.5, 3, 4, 5, and 6 are implemented:
 - seat blockers, stand/sit timers, aisle-blocking helpers, and stand cooldowns
 - beverage cart row service, aisle occupancy, delayed bladder-rate modifiers, and debugger trigger
 - turbulence warnings, possible seat belt sign, forced passenger returns, and movement lockout
+- baby-attached adult diaper events, long lavatory changes, and debugger indicators
 - CLI simulation output with optional lavatory assignments
 - minimal browser debugger for cabin readability and lavatory queue playtesting
 
