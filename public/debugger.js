@@ -197,7 +197,8 @@ function tick(dt) {
       passenger.state = "NeedsToGo";
       log(`${passenger.id} at ${passenger.row}${passenger.seat} needs to go.`);
     }
-    if ((passenger.state === "Seated" || passenger.state === "NeedsToGo") && percent >= 1) {
+    if (passenger.state !== "Panic" && percent >= 1) {
+      abandonLavatoryAssignment(passenger);
       passenger.state = "Panic";
       log(`${passenger.id} at ${passenger.row}${passenger.seat} is in panic.`);
     }
@@ -386,6 +387,41 @@ function releaseSeatBlockers(blockedPassengerId) {
   for (const blocker of state.passengers) {
     if (blocker.blockingPassengerId === blockedPassengerId) {
       startSitting(blocker);
+    }
+  }
+}
+
+function abandonLavatoryAssignment(passenger) {
+  const blockedPassengerId = passenger.blockingPassengerId;
+  releaseSeatBlockers(passenger.id);
+  passenger.assignedLavatoryId = undefined;
+  passenger.aisleRow = undefined;
+  passenger.destinationAisleRow = undefined;
+  passenger.queuePosition = undefined;
+  passenger.blockingPassengerId = undefined;
+  passenger.movementStepSecondsRemaining = 0;
+  passenger.movementSecondsRemaining = 0;
+  passenger.standSecondsRemaining = 0;
+  passenger.sitSecondsRemaining = 0;
+  passenger.lavatorySecondsRemaining = 0;
+  removeFromLavatoryQueue(passenger.id);
+  if (blockedPassengerId) {
+    const blockedPassenger = state.passengers.find((candidate) => candidate.id === blockedPassengerId);
+    if (blockedPassenger && ["Standing", "WaitingForSeatBlockers"].includes(blockedPassenger.state)) {
+      blockedPassenger.state = "WaitingForSeatBlockers";
+      blockedPassenger.aisleRow = undefined;
+      blockedPassenger.standSecondsRemaining = 0;
+    }
+  }
+  refreshAisleCells();
+}
+
+function removeFromLavatoryQueue(passengerId) {
+  for (const lavatory of state.lavatories) {
+    const previousLength = lavatory.queue.length;
+    lavatory.queue = lavatory.queue.filter((queuedPassengerId) => queuedPassengerId !== passengerId);
+    if (lavatory.queue.length !== previousLength) {
+      updateQueuePositions(lavatory);
     }
   }
 }
