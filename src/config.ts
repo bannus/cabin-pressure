@@ -36,7 +36,7 @@ export const tinyReadableCabin: LevelConfig = {
     standCooldownSeconds: 3
   },
   beverageCart: {
-    serviceRows: [2, 3, 4, 5, 6, 7],
+    serviceRows: [8, 7, 6, 5, 4, 3, 2, 1],
     rowServiceSeconds: [2, 3],
     moveSecondsPerRow: 1,
     bladderRateMultiplier: 1.35,

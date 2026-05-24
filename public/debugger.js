@@ -23,7 +23,7 @@ const config = {
     standCooldownSeconds: 3
   },
   beverageCart: {
-    serviceRows: [2, 3, 4, 5, 6, 7],
+    serviceRows: [8, 7, 6, 5, 4, 3, 2, 1],
     rowServiceSeconds: [2, 3],
     moveSecondsPerRow: 1,
     bladderRateMultiplier: 1.35,
@@ -269,11 +269,25 @@ function tick(dt) {
 
 function startBeverageCart() {
   const cart = state.beverageCart;
-  if (!cart || cart.state !== "ready") {
+  if (!cart) {
     return;
   }
+  if (cart.state === "complete") {
+    resetBeverageCart(cart);
+  }
+  if (cart.state !== "ready") return;
   log(`${cart.id} beverage cart started service at row ${cart.currentAisleRow}.`);
   startBeverageRowService(cart);
+}
+
+function resetBeverageCart(cart) {
+  cart.state = "ready";
+  cart.currentAisleRow = config.beverageCart.serviceRows[0];
+  cart.destinationAisleRow = undefined;
+  cart.serviceRowIndex = 0;
+  cart.serviceSecondsRemaining = 0;
+  cart.movementStepSecondsRemaining = 0;
+  cart.passengerIdsServed = [];
 }
 
 function assign(passengerId, lavatoryId) {
@@ -900,7 +914,12 @@ function startAisleMovement(passenger, destinationAisleRow, startingAisleRow = p
   passenger.aisleRow = startingAisleRow;
   passenger.destinationAisleRow = destinationAisleRow;
   passenger.queuePosition = undefined;
-  passenger.movementStepSecondsRemaining = config.minimumWalkSeconds || nextAisleStepSeconds(passenger);
+  passenger.movementStepSecondsRemaining = config.minimumWalkSeconds;
+  if (isBeverageCartBlockingAisleStep(passenger)) {
+    passenger.movementStepSecondsRemaining = 0;
+  } else if (passenger.movementStepSecondsRemaining === 0) {
+    passenger.movementStepSecondsRemaining = nextAisleStepSeconds(passenger);
+  }
   passenger.movementSecondsRemaining =
     config.minimumWalkSeconds + Math.abs(startingAisleRow - destinationAisleRow) * config.walkSecondsPerRow;
   refreshAisleCells();
@@ -914,12 +933,19 @@ function advanceAisleMovement(passenger, dt) {
         completeAisleMovement(passenger);
         break;
       }
+      if (isBeverageCartBlockingAisleStep(passenger)) {
+        break;
+      }
       passenger.movementStepSecondsRemaining = nextAisleStepSeconds(passenger);
     }
     if (passenger.movementStepSecondsRemaining === 0) {
       passenger.aisleRow = nextAisleRow(passenger);
       refreshAisleCells();
       continue;
+    }
+
+    if (isBeverageCartBlockingAisleStep(passenger)) {
+      break;
     }
 
     const elapsed = Math.min(remainingDt, passenger.movementStepSecondsRemaining);
@@ -966,18 +992,24 @@ function nextAisleStepSeconds(passenger) {
     return 0;
   }
   const nextRow = nextAisleRow(passenger);
+  if (isBeverageCartBlockingAisleStep(passenger)) {
+    return 0;
+  }
   const conflict = state.passengers.some(
     (candidate) =>
       candidate.id !== passenger.id &&
       isInAisle(candidate) &&
       (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
   );
-  const cartConflict =
-    state.beverageCart &&
-    ["moving", "servicing"].includes(state.beverageCart.state) &&
-    (state.beverageCart.currentAisleRow === passenger.aisleRow ||
-      state.beverageCart.currentAisleRow === nextRow);
-  return config.walkSecondsPerRow * (conflict || cartConflict ? config.passingSlowdownMultiplier : 1);
+  return config.walkSecondsPerRow * (conflict ? config.passingSlowdownMultiplier : 1);
+}
+
+function isBeverageCartBlockingAisleStep(passenger) {
+  if (passenger.aisleRow === undefined || passenger.destinationAisleRow === undefined) return false;
+  const cart = state.beverageCart;
+  if (!cart || !["moving", "servicing"].includes(cart.state)) return false;
+  const nextRow = nextAisleRow(passenger);
+  return cart.currentAisleRow === passenger.aisleRow || cart.currentAisleRow === nextRow;
 }
 
 function nextAisleRow(passenger) {
