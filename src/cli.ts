@@ -21,13 +21,14 @@ for (const assignment of options.assignments) {
 let nextSummaryAt = 0;
 let printedEvents = 0;
 
-console.log(`Cabin Pressure milestone 5 simulation`);
+console.log(`Cabin Pressure milestone 6 simulation`);
 console.log(`Level: ${config.name} (${config.id})`);
 console.log(`Seed: ${config.seed}`);
 console.log(`Duration: ${config.durationSeconds}s`);
 console.log(`Passengers: ${state.passengers.length}`);
 console.log(`Lavatories: ${state.lavatories.map((lavatory) => lavatory.id).join(", ")}`);
 console.log(`Beverage cart: ${state.beverageCart ? state.beverageCart.state : "not configured"}`);
+console.log(`Turbulence: ${state.turbulence ? state.turbulence.phase : "not configured"}`);
 console.log("");
 
 while (state.status === "running") {
@@ -89,6 +90,13 @@ function printSummary(): void {
         `dest=${summary.beverageCart.destinationAisleRow ?? "-"} served=${
           summary.beverageCart.passengerIdsServed.length
         }`
+    );
+  }
+  if (summary.turbulence !== undefined) {
+    console.log(
+      `  turbulence: ${summary.turbulence.phase} warning=${summary.turbulence.warningSecondsRemaining.toFixed(
+        1
+      )}s active=${summary.turbulence.activeSecondsRemaining.toFixed(1)}s`
     );
   }
 }

@@ -749,7 +749,7 @@ test("turbulence warning can turn on seat belt sign and force aisle passengers t
     },
     lavatory: {
       minimumWalkSeconds: 0,
-      walkSecondsPerRow: 1,
+      walkSecondsPerRow: 5,
       passingSlowdownMultiplier: 1,
       useDurationSeconds: [5, 5]
     },
@@ -763,7 +763,7 @@ test("turbulence warning can turn on seat belt sign and force aisle passengers t
   const state = createInitialState(config);
 
   assignPassengerToLavatory(state, "P003", "front");
-  tick(state, 1);
+  tick(state, 5);
   assert.equal(state.passengers[2]?.aisleRow, 2);
 
   startTurbulence(state);

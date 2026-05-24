@@ -185,39 +185,6 @@ export function startBeverageCart(state: SimulationState): SimulationState {
     throw new Error("cannot start beverage cart after simulation has ended");
   }
 
-  export function startTurbulence(state: SimulationState): SimulationState {
-    if (state.status !== "running") {
-      throw new Error("cannot start turbulence after simulation has ended");
-    }
-
-    const turbulence = state.turbulence;
-    if (turbulence === undefined) {
-      throw new Error("level does not configure turbulence");
-    }
-
-    if (turbulence.phase !== "idle") {
-      return state;
-    }
-
-    turbulence.hasAutoStarted = true;
-    turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn(state);
-    turbulence.warningSecondsRemaining = requireTurbulenceConfig(state).warningSeconds;
-    turbulence.activeSecondsRemaining = 0;
-
-    if (turbulence.warningSecondsRemaining > 0) {
-      turbulence.phase = "warning";
-      addEvent(
-        state,
-        "turbulenceWarning",
-        `Turbulence warning: seat belt sign possible in ${turbulence.warningSecondsRemaining}s.`
-      );
-    } else {
-      finishTurbulenceWarning(state, turbulence);
-    }
-
-    return state;
-  }
-
   const cart = state.beverageCart;
   if (cart === undefined) {
     throw new Error("level does not configure a beverage cart");
@@ -242,6 +209,39 @@ export function startBeverageCart(state: SimulationState): SimulationState {
   );
   startBeverageRowService(state, cart);
   refreshAisleCells(state);
+  return state;
+}
+
+export function startTurbulence(state: SimulationState): SimulationState {
+  if (state.status !== "running") {
+    throw new Error("cannot start turbulence after simulation has ended");
+  }
+
+  const turbulence = state.turbulence;
+  if (turbulence === undefined) {
+    throw new Error("level does not configure turbulence");
+  }
+
+  if (turbulence.phase !== "idle") {
+    return state;
+  }
+
+  turbulence.hasAutoStarted = true;
+  turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn(state);
+  turbulence.warningSecondsRemaining = requireTurbulenceConfig(state).warningSeconds;
+  turbulence.activeSecondsRemaining = 0;
+
+  if (turbulence.warningSecondsRemaining > 0) {
+    turbulence.phase = "warning";
+    addEvent(
+      state,
+      "turbulenceWarning",
+      `Turbulence warning: seat belt sign possible in ${turbulence.warningSecondsRemaining}s.`
+    );
+  } else {
+    finishTurbulenceWarning(state, turbulence);
+  }
+
   return state;
 }
 
