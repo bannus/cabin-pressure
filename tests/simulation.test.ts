@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import test from "node:test";
 import { tinyReadableCabin } from "../src/config";
+import { estimateLavatoryDemand } from "../src/level-metrics";
 import {
   assignPassengerToLavatory,
   createInitialState,
@@ -19,6 +20,16 @@ const instantSeatBlockers = {
   sitSeconds: 0,
   standCooldownSeconds: 0
 };
+
+test("lavatory demand helper returns stable ratio for test level", () => {
+  const estimate = estimateLavatoryDemand(tinyReadableCabin);
+
+  assert.equal(Number(estimate.expectedDemandSeconds.toFixed(2)), 143.7);
+  assert.equal(estimate.perfectUtilizationSupplySeconds, 360);
+  assert.equal(Number(estimate.demandToSupplyRatio.toFixed(3)), 0.399);
+  assert.equal(Number(estimate.expectedBladderVisits.toFixed(4)), 1.4163);
+  assert.equal(Number(estimate.expectedBabyDiaperVisits.toFixed(3)), 5.125);
+});
 
 test("passenger generation is deterministic for the same seed", () => {
   const first = createInitialState(tinyReadableCabin);

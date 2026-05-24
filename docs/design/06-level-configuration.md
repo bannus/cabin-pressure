@@ -88,7 +88,64 @@ It creates relief from panic while preserving pressure. Keep it configurable so
 playtests can compare more forgiving recovery values against harsher values that
 leave the passenger close to another crisis.
 
+## Lavatory demand budget and variability
+
+For fast level tuning, compare estimated lavatory demand against ideal lavatory
+supply:
+
+- `demandSeconds`: expected total lavatory task time demanded by passengers
+- `supplySeconds`: `durationSeconds * lavatoryCount` under perfect utilization
+- `demandRatio`: `demandSeconds / supplySeconds`
+
+The CLI prints this estimate at startup. As a rough rule:
+
+- `< 0.7`: forgiving
+- `0.7–0.95`: tense
+- `> 0.95`: near overload
+- `> 1.0`: overloaded on paper even before movement and queue friction
+
+Because several inputs are sampled from ranges, demand varies by seed/sample.
+When reporting variability, include both:
+
+- **95% CI of the mean demand** (estimation uncertainty of the average), and
+- **empirical 95% demand range** (typical run-to-run spread).
+
+Reference values for current `tiny-readable-cabin` tuning (Monte Carlo sample):
+
+- mean demand: `120.74s`
+- 95% CI of mean demand: `[120.70s, 120.78s]`
+- empirical 95% demand range: `[106.35s, 147.52s]`
+- mean demand ratio: `0.335`
+- empirical 95% demand-ratio range: `[0.295, 0.410]`
+
+Use these as a baseline sanity check, not a strict balance target; real
+difficulty is usually higher once assignment behavior, movement conflicts, and
+timing mistakes are included.
+
 ## Future fields
 
 Later milestones should add row exit timings, weighted initial bladder
 distribution, and bot tuning parameters.
+
+## Future improvement candidates (demand variability)
+
+If level-to-level or seed-to-seed demand swings are too large, keep randomness
+but reduce budget variance with one or more of these options:
+
+- **Stratified initial fill sampling.** Replace fully independent initial-fill
+  draws with bucketed draws plus jitter so cabin-wide urgency is less volatile.
+- **Mean correction pass.** After random initial fills are sampled, apply a
+  small global offset so the cabin average tracks a target value.
+- **Variance scaling knobs.** Add config multipliers to narrow or widen
+  randomness for high-impact systems (`initialFillRange`, lavatory use duration,
+  baby diaper timing) per level.
+- **Quantile-based duration draws.** Sample lavatory and diaper durations from
+  spread quantiles each run rather than unconstrained independent draws.
+- **Separate budget RNG from presentation RNG.** Keep aggregate demand bounded
+  while preserving local variation and flavor.
+
+Before adopting a method globally, compare baseline vs candidate levels using:
+
+- mean demand ratio
+- empirical 95% demand-ratio range
+- downstream gameplay outcomes (queue length, panic counts, strike rate)

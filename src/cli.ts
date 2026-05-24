@@ -1,4 +1,5 @@
 import { tinyReadableCabin, withLevelOverrides } from "./config";
+import { estimateLavatoryDemand } from "./level-metrics";
 import { createInterface } from "node:readline";
 import {
   assignPassengerToLavatory,
@@ -23,7 +24,6 @@ void run().catch((error: unknown) => {
   console.error(message);
   process.exitCode = 1;
 });
-
 async function run(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const config = withLevelOverrides(tinyReadableCabin, {
@@ -31,6 +31,7 @@ async function run(): Promise<void> {
     durationSeconds: options.duration
   });
   const state = createInitialState(config);
+  const lavatoryEstimate = estimateLavatoryDemand(config);
   for (const assignment of options.assignments) {
     assignPassengerToLavatory(state, assignment.passengerId, assignment.lavatoryId);
   }
@@ -43,6 +44,11 @@ async function run(): Promise<void> {
   console.log(`Duration: ${config.durationSeconds}s`);
   console.log(`Passengers: ${state.passengers.length}`);
   console.log(`Lavatories: ${state.lavatories.map((lavatory) => lavatory.id).join(", ")}`);
+  console.log(
+    `Lavatory demand ratio: ${lavatoryEstimate.demandToSupplyRatio.toFixed(3)} ` +
+      `(demand=${lavatoryEstimate.expectedDemandSeconds.toFixed(1)}s ` +
+      `supply=${lavatoryEstimate.perfectUtilizationSupplySeconds.toFixed(1)}s)`
+  );
   console.log(`Beverage cart: ${state.beverageCart ? state.beverageCart.state : "not configured"}`);
   console.log(`Turbulence: ${state.turbulence ? state.turbulence.phase : "not configured"}`);
   console.log("");
