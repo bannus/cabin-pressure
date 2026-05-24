@@ -625,6 +625,10 @@ test("beverage cart starts on trigger and services rows in order", () => {
   tick(state, 1);
   assert.equal(state.beverageCart?.state, "complete");
   assert.deepEqual(state.beverageCart?.passengerIdsServed, ["P001", "P003"]);
+  startBeverageCart(state);
+  assert.equal(state.beverageCart?.state, "servicing");
+  assert.equal(state.beverageCart?.currentAisleRow, 1);
+  assert.deepEqual(state.beverageCart?.passengerIdsServed, []);
   assert.deepEqual(
     state.events
       .filter((event) => event.type.startsWith("beverageCart"))
@@ -636,7 +640,9 @@ test("beverage cart starts on trigger and services rows in order", () => {
       "beverageCartDeparted",
       "beverageCartArrived",
       "beverageCartServiced",
-      "beverageCartComplete"
+      "beverageCartComplete",
+      "beverageCartStarted",
+      "beverageCartArrived"
     ]
   );
 });
@@ -690,7 +696,7 @@ test("beverage service applies a delayed bladder rate modifier window", () => {
   assert.equal(state.passengers[0]?.rawBladder, 12);
 });
 
-test("active beverage cart occupies aisle cells and slows passenger movement", () => {
+test("active beverage cart occupies aisle cells and blocks passenger movement", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
     durationSeconds: 30,
@@ -728,7 +734,10 @@ test("active beverage cart occupies aisle cells and slows passenger movement", (
   assignPassengerToLavatory(state, "P002", "front");
 
   assert.equal(state.aisleCells.find((cell) => cell.row === 1)?.beverageCartId, "beverage-cart");
-  assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 4);
+  assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 0);
+
+  tick(state, 1);
+  assert.equal(state.passengers[1]?.aisleRow, 2);
 });
 
 test("turbulence warning can turn on seat belt sign and force aisle passengers to return", () => {
