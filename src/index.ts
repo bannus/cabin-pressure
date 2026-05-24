@@ -8,6 +8,7 @@ export {
 } from "./simulation";
 export type {
   AircraftConfig,
+  AisleCell,
   BladderConfig,
   LavatoryConfig,
   Lavatory,

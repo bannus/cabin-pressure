@@ -20,6 +20,7 @@ logic.
 - `bladder.desperateThreshold`
 - `lavatory.minimumWalkSeconds`
 - `lavatory.walkSecondsPerRow`
+- `lavatory.passingSlowdownMultiplier`
 - `lavatory.useDurationSeconds`
 - `loss.panicGraceSeconds`
 - `loss.maxStrikes`

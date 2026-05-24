@@ -14,6 +14,7 @@ const config = {
   desperateThreshold: 0.9,
   minimumWalkSeconds: 2,
   walkSecondsPerRow: 0.75,
+  passingSlowdownMultiplier: 2,
   useDurationSeconds: [8, 14]
 };
 
@@ -50,6 +51,7 @@ configElement.textContent = JSON.stringify(
     lavatoryTiming: {
       minimumWalkSeconds: config.minimumWalkSeconds,
       walkSecondsPerRow: config.walkSecondsPerRow,
+      passingSlowdownMultiplier: config.passingSlowdownMultiplier,
       useDurationSeconds: config.useDurationSeconds
     }
   },
@@ -116,9 +118,13 @@ function createState() {
         rawBladder: definition.capacity * fillPercent,
         state: fillPercent >= config.requestThreshold ? "NeedsToGo" : "Seated",
         assignedLavatoryId: undefined,
+        aisleRow: undefined,
+        destinationAisleRow: undefined,
+        movementStepSecondsRemaining: 0,
         movementSecondsRemaining: 0,
         lavatorySecondsRemaining: 0,
-        visits: 0
+        visits: 0,
+        queuePosition: undefined
       });
     }
   }
@@ -126,6 +132,7 @@ function createState() {
     time: 0,
     status: "running",
     passengers,
+    aisleCells: buildAisleCells(passengers),
     lavatories: config.lavatories.map((lavatory) => ({ ...lavatory, occupant: undefined, queue: [] })),
     events: []
   };
@@ -136,12 +143,7 @@ function tick(dt) {
 
   for (const passenger of state.passengers) {
     if (passenger.state === "ReturningToSeat") {
-      passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - dt);
-      if (passenger.movementSecondsRemaining === 0) {
-        passenger.assignedLavatoryId = undefined;
-        passenger.state = bladderPercent(passenger) >= config.requestThreshold ? "NeedsToGo" : "Seated";
-        log(`${passenger.id} returned to ${passenger.row}${passenger.seat}.`);
-      }
+      advanceAisleMovement(passenger, dt);
     }
   }
 
@@ -153,23 +155,25 @@ function tick(dt) {
         lavatory.occupant = undefined;
         occupant.rawBladder = 0;
         occupant.state = "ReturningToSeat";
-        occupant.movementSecondsRemaining = walkSeconds(occupant, lavatory);
+        occupant.queuePosition = undefined;
+        startAisleMovement(occupant, occupant.row, lavatory.row);
         log(`${occupant.id} finished using ${lavatory.id} lavatory.`);
       }
     }
     if (!lavatory.occupant && lavatory.queue.length > 0) {
-      startUsing(lavatory, findPassenger(lavatory.queue.shift()));
+      const nextPassenger = findPassenger(lavatory.queue.shift());
+      updateQueuePositions(lavatory);
+      startUsing(lavatory, nextPassenger);
     }
   }
 
   for (const passenger of state.passengers) {
     if (passenger.state === "WalkingToLavatory") {
-      passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - dt);
-      if (passenger.movementSecondsRemaining === 0) {
-        arrive(passenger);
-      }
+      advanceAisleMovement(passenger, dt);
     }
   }
+
+  refreshAisleCells();
 
   for (const passenger of state.passengers) {
     if (passenger.state === "UsingLavatory") {
@@ -200,12 +204,16 @@ function assign(passengerId, lavatoryId) {
   }
   const lavatory = findLavatory(lavatoryId);
   for (const candidate of state.lavatories) {
+    const previousLength = candidate.queue.length;
     candidate.queue = candidate.queue.filter((id) => id !== passengerId);
+    if (candidate.queue.length !== previousLength) {
+      updateQueuePositions(candidate);
+    }
   }
   const oldLavatoryId = passenger.assignedLavatoryId;
   passenger.assignedLavatoryId = lavatoryId;
   passenger.state = "WalkingToLavatory";
-  passenger.movementSecondsRemaining = walkSeconds(passenger, lavatory);
+  startAisleMovement(passenger, lavatory.row, passenger.aisleRow ?? passenger.row);
   log(
     oldLavatoryId && oldLavatoryId !== lavatoryId
       ? `${passenger.id} rerouted from ${oldLavatoryId} to ${lavatoryId}.`
@@ -221,15 +229,23 @@ function arrive(passenger) {
     return;
   }
   passenger.state = "QueuedForLavatory";
+  passenger.movementSecondsRemaining = 0;
+  passenger.movementStepSecondsRemaining = 0;
   if (!lavatory.queue.includes(passenger.id)) {
     lavatory.queue.push(passenger.id);
   }
+  updateQueuePositions(lavatory);
   log(`${passenger.id} queued for ${lavatory.id} lavatory.`);
 }
 
 function startUsing(lavatory, passenger) {
   lavatory.occupant = passenger.id;
   passenger.state = "UsingLavatory";
+  passenger.aisleRow = lavatory.row;
+  passenger.destinationAisleRow = undefined;
+  passenger.queuePosition = undefined;
+  passenger.movementSecondsRemaining = 0;
+  passenger.movementStepSecondsRemaining = 0;
   passenger.visits += 1;
   passenger.lavatorySecondsRemaining = range(createRng(hash(`${config.seed}:${passenger.id}:${passenger.visits}`)), config.useDurationSeconds[0], config.useDurationSeconds[1]);
   log(`${passenger.id} entered ${lavatory.id} lavatory.`);
@@ -269,8 +285,10 @@ function seatButton(passenger) {
 
 function aisle(row) {
   const div = document.createElement("div");
-  div.className = "aisle";
-  div.textContent = row;
+  const cell = state.aisleCells.find((candidate) => candidate.row === row);
+  const passengerIds = cell?.passengerIds ?? [];
+  div.className = `aisle ${passengerIds.length > 0 ? "occupied" : ""}`;
+  div.textContent = passengerIds.length > 0 ? `${row} · ${passengerIds.join(",")}` : String(row);
   return div;
 }
 
@@ -286,7 +304,7 @@ function lavatoryMarker(id) {
 
 function renderSelected() {
   const passenger = findPassenger(selectedPassengerId);
-  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}`;
+  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}`;
   assignmentElement.innerHTML = "";
   for (const lavatory of state.lavatories) {
     const button = document.createElement("button");
@@ -302,7 +320,14 @@ function renderLavatories() {
   for (const lavatory of state.lavatories) {
     const div = document.createElement("div");
     div.className = "lavatory-card";
-    div.innerHTML = `<strong>${lavatory.id}</strong><br>Occupant: ${lavatory.occupant ?? "-"}<br>Queue: ${lavatory.queue.join(", ") || "-"}`;
+    div.innerHTML = `<strong>${lavatory.id}</strong><br>Occupant: ${lavatory.occupant ?? "-"}<br>Queue: ${
+      lavatory.queue
+        .map((passengerId) => {
+          const passenger = findPassenger(passengerId);
+          return `${passengerId}@${passenger.aisleRow}`;
+        })
+        .join(", ") || "-"
+    }`;
     lavatoriesElement.append(div);
   }
 }
@@ -333,6 +358,133 @@ function bladderColor(percent) {
 
 function walkSeconds(passenger, lavatory) {
   return config.minimumWalkSeconds + Math.abs(passenger.row - lavatory.row) * config.walkSecondsPerRow;
+}
+
+function startAisleMovement(passenger, destinationAisleRow, startingAisleRow = passenger.row) {
+  passenger.aisleRow = startingAisleRow;
+  passenger.destinationAisleRow = destinationAisleRow;
+  passenger.queuePosition = undefined;
+  passenger.movementStepSecondsRemaining = config.minimumWalkSeconds || nextAisleStepSeconds(passenger);
+  passenger.movementSecondsRemaining =
+    config.minimumWalkSeconds + Math.abs(startingAisleRow - destinationAisleRow) * config.walkSecondsPerRow;
+  refreshAisleCells();
+}
+
+function advanceAisleMovement(passenger, dt) {
+  let remainingDt = dt;
+  while (remainingDt > 0 && passenger.destinationAisleRow !== undefined) {
+    if (passenger.movementStepSecondsRemaining === 0) {
+      if (passenger.aisleRow === passenger.destinationAisleRow) {
+        completeAisleMovement(passenger);
+        break;
+      }
+      passenger.movementStepSecondsRemaining = nextAisleStepSeconds(passenger);
+    }
+    if (passenger.movementStepSecondsRemaining === 0) {
+      passenger.aisleRow = nextAisleRow(passenger);
+      refreshAisleCells();
+      continue;
+    }
+
+    const elapsed = Math.min(remainingDt, passenger.movementStepSecondsRemaining);
+    passenger.movementStepSecondsRemaining = Math.max(0, passenger.movementStepSecondsRemaining - elapsed);
+    passenger.movementSecondsRemaining = Math.max(0, passenger.movementSecondsRemaining - elapsed);
+    remainingDt -= elapsed;
+
+    if (passenger.movementStepSecondsRemaining > 0) {
+      break;
+    }
+    if (passenger.aisleRow === passenger.destinationAisleRow) {
+      completeAisleMovement(passenger);
+      break;
+    }
+
+    passenger.aisleRow = nextAisleRow(passenger);
+    refreshAisleCells();
+    if (passenger.aisleRow === passenger.destinationAisleRow) {
+      completeAisleMovement(passenger);
+      break;
+    }
+  }
+}
+
+function completeAisleMovement(passenger) {
+  passenger.destinationAisleRow = undefined;
+  passenger.movementStepSecondsRemaining = 0;
+  passenger.movementSecondsRemaining = 0;
+
+  if (passenger.state === "WalkingToLavatory") {
+    arrive(passenger);
+    return;
+  }
+
+  if (passenger.state === "ReturningToSeat") {
+    passenger.assignedLavatoryId = undefined;
+    passenger.aisleRow = undefined;
+    passenger.state = bladderPercent(passenger) >= config.requestThreshold ? "NeedsToGo" : "Seated";
+    log(`${passenger.id} returned to ${passenger.row}${passenger.seat}.`);
+  }
+}
+
+function nextAisleStepSeconds(passenger) {
+  if (passenger.aisleRow === passenger.destinationAisleRow) {
+    return 0;
+  }
+  const nextRow = nextAisleRow(passenger);
+  const conflict = state.passengers.some(
+    (candidate) =>
+      candidate.id !== passenger.id &&
+      isInAisle(candidate) &&
+      (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
+  );
+  return config.walkSecondsPerRow * (conflict ? config.passingSlowdownMultiplier : 1);
+}
+
+function nextAisleRow(passenger) {
+  return passenger.aisleRow + Math.sign(passenger.destinationAisleRow - passenger.aisleRow);
+}
+
+function isInAisle(passenger) {
+  return ["WalkingToLavatory", "QueuedForLavatory", "ReturningToSeat"].includes(passenger.state) && passenger.aisleRow !== undefined;
+}
+
+function refreshAisleCells() {
+  state.aisleCells = buildAisleCells(state.passengers);
+}
+
+function buildAisleCells(passengers) {
+  const lavatoryRows = config.lavatories.map((lavatory) => lavatory.row);
+  const minRow = Math.min(1, ...lavatoryRows);
+  const maxRow = Math.max(config.rows, ...lavatoryRows);
+  const cells = [];
+  for (let row = minRow; row <= maxRow; row += 1) {
+    cells.push({
+      row,
+      passengerIds: passengers.filter((passenger) => isInAisle(passenger) && passenger.aisleRow === row).map((passenger) => passenger.id)
+    });
+  }
+  return cells;
+}
+
+function updateQueuePositions(lavatory) {
+  lavatory.queue.forEach((passengerId, index) => {
+    const passenger = findPassenger(passengerId);
+    passenger.queuePosition = index + 1;
+    passenger.aisleRow = queueAisleRow(lavatory, passenger.queuePosition);
+    passenger.destinationAisleRow = undefined;
+    passenger.movementSecondsRemaining = 0;
+    passenger.movementStepSecondsRemaining = 0;
+  });
+  refreshAisleCells();
+}
+
+function queueAisleRow(lavatory, queuePosition) {
+  const direction = lavatory.row <= 1 ? 1 : -1;
+  return clamp(lavatory.row + direction * queuePosition, 1, config.rows);
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function findPassenger(id) {

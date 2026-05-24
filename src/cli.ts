@@ -21,7 +21,7 @@ for (const assignment of options.assignments) {
 let nextSummaryAt = 0;
 let printedEvents = 0;
 
-console.log(`Cabin Pressure milestone 2 simulation`);
+console.log(`Cabin Pressure milestone 3 simulation`);
 console.log(`Level: ${config.name} (${config.id})`);
 console.log(`Seed: ${config.seed}`);
 console.log(`Duration: ${config.durationSeconds}s`);
@@ -70,6 +70,12 @@ function printSummary(): void {
           )}]`
       )
       .join("; ")}`
+  );
+  console.log(
+    `  aisle: ${summary.aisleCells
+      .filter((cell) => cell.passengerIds.length > 0)
+      .map((cell) => `${cell.row}=[${cell.passengerIds.join(",")}]`)
+      .join("; ") || "-"}`
   );
 }
 

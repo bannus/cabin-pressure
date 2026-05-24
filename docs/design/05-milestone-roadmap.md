@@ -60,6 +60,13 @@ Implemented as `npm run debugger`.
 
 Add aisle cells, passenger movement, passing slowdown, and queue positions.
 
+Implemented features:
+
+- `aisleCells` state showing passengers in each aisle row
+- row-by-row passenger movement to lavatories and back to seats
+- configurable passing slowdown when passengers meet in occupied aisle cells
+- physical queue positions for lavatory lines
+
 ## Milestone 4: Seat blockers
 
 Add inner-seat dependencies, blockers standing into the aisle, stand/sit timers,
