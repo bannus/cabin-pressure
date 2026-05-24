@@ -14,9 +14,10 @@ export const tinyReadableCabin: LevelConfig = {
     ]
   },
   passengerMix: {
-    normal: 24,
+    normal: 22,
     smallBladder: 4,
-    bigBladder: 4
+    bigBladder: 4,
+    babyAttachedAdult: 2
   },
   bladder: {
     initialFillRange: [0.0, 0.25],
@@ -49,6 +50,11 @@ export const tinyReadableCabin: LevelConfig = {
     durationSeconds: [10, 16],
     seatBeltSignChance: 1,
     autoStartSeconds: 90
+  },
+  babyDiaper: {
+    firstEventSeconds: [35, 75],
+    repeatEventSeconds: [60, 100],
+    changeDurationSeconds: [20, 30]
   },
   loss: {
     panicGraceSeconds: 8,

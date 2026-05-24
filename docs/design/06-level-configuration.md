@@ -35,10 +35,10 @@ logic.
 - 2 lavatories in config for future milestones
 - 32 passengers
 - 180 seconds
-- normal, small bladder, and big bladder archetypes
+- normal, small bladder, big bladder, and baby-attached adult archetypes
 - beverage cart is configured but starts only when triggered
 - turbulence is configured with a warning, possible seat belt sign, and auto-start
-- no baby events yet
+- baby diaper events are configured with first/repeat timing and long change duration
 
 ## Initial bladder tuning
 

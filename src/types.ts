@@ -61,6 +61,7 @@ export interface LevelConfig {
   seatBlockers: SeatBlockerConfig;
   beverageCart?: BeverageCartConfig;
   turbulence?: TurbulenceConfig;
+  babyDiaper?: BabyDiaperConfig;
   loss: LossConfig;
 }
 
@@ -101,6 +102,12 @@ export interface TurbulenceConfig {
   durationSeconds: [number, number];
   seatBeltSignChance: number;
   autoStartSeconds?: number;
+}
+
+export interface BabyDiaperConfig {
+  firstEventSeconds: [number, number];
+  repeatEventSeconds: [number, number];
+  changeDurationSeconds: [number, number];
 }
 
 export interface BeverageCart {
@@ -148,6 +155,9 @@ export interface Passenger {
   beverageRateMultiplier: number;
   beverageRateModifierStartSeconds?: number;
   beverageRateModifierEndSeconds?: number;
+  babyDiaperSecondsRemaining?: number;
+  babyDiaperNeedsChange: boolean;
+  babyDiaperChangeCount: number;
 }
 
 export interface SimulationEvent {
@@ -175,6 +185,8 @@ export interface SimulationEvent {
     | "seatBeltSignOff"
     | "seatBeltSignSkipped"
     | "forcedReturn"
+    | "babyDiaperNeeded"
+    | "babyDiaperChanged"
     | "win"
     | "loss";
   passengerId?: string;
@@ -239,4 +251,7 @@ export interface PassengerUrgency {
   beverageRateMultiplier: number;
   beverageRateModifierStartSeconds?: number;
   beverageRateModifierEndSeconds?: number;
+  babyDiaperNeedsChange: boolean;
+  babyDiaperSecondsRemaining?: number;
+  babyDiaperChangeCount: number;
 }

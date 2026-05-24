@@ -11,6 +11,7 @@ export {
 export type {
   AircraftConfig,
   AisleCell,
+  BabyDiaperConfig,
   BeverageCart,
   BeverageCartConfig,
   BeverageCartState,

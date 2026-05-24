@@ -155,6 +155,10 @@ main {
   box-shadow: 0 0 0 3px #38bdf8;
 }
 
+.seat.diaper-needed {
+  outline: 3px solid #c084fc;
+}
+
 .lavatory-marker {
   grid-column: 1 / -1;
   border: 1px dashed #38bdf8;

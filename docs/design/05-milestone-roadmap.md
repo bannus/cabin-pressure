@@ -107,6 +107,13 @@ Implemented features:
 
 Add baby-attached adult events with long lavatory usage and indicators.
 
+Implemented features:
+
+- configurable first/repeat diaper event timings and diaper change duration
+- baby-attached adult passengers request lavatory access when a diaper event fires
+- diaper changes use the longer lavatory task timing and reschedule follow-up events
+- CLI/debugger indicators expose active diaper-change needs
+
 ## Milestone 8: Expanded browser playtest UI
 
 Expand the earlier debugger into a fuller playtest harness with debug buttons,
