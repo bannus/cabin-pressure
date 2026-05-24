@@ -126,3 +126,26 @@ timing mistakes are included.
 
 Later milestones should add row exit timings, weighted initial bladder
 distribution, and bot tuning parameters.
+
+## Future improvement candidates (demand variability)
+
+If level-to-level or seed-to-seed demand swings are too large, keep randomness
+but reduce budget variance with one or more of these options:
+
+- **Stratified initial fill sampling.** Replace fully independent initial-fill
+  draws with bucketed draws plus jitter so cabin-wide urgency is less volatile.
+- **Mean correction pass.** After random initial fills are sampled, apply a
+  small global offset so the cabin average tracks a target value.
+- **Variance scaling knobs.** Add config multipliers to narrow or widen
+  randomness for high-impact systems (`initialFillRange`, lavatory use duration,
+  baby diaper timing) per level.
+- **Quantile-based duration draws.** Sample lavatory and diaper durations from
+  spread quantiles each run rather than unconstrained independent draws.
+- **Separate budget RNG from presentation RNG.** Keep aggregate demand bounded
+  while preserving local variation and flavor.
+
+Before adopting a method globally, compare baseline vs candidate levels using:
+
+- mean demand ratio
+- empirical 95% demand-ratio range
+- downstream gameplay outcomes (queue length, panic counts, strike rate)
