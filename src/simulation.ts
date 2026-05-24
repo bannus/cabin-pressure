@@ -1103,11 +1103,23 @@ function validateConfig(config: LevelConfig): void {
   if (config.durationSeconds <= 0) {
     throw new Error("durationSeconds must be positive");
   }
-  if (config.bladder.initialFillRange[0] < 0 || config.bladder.initialFillRange[1] > 1) {
+  if (!isUnitInterval(config.bladder.initialFillRange[0]) || !isUnitInterval(config.bladder.initialFillRange[1])) {
     throw new Error("initialFillRange must be between 0 and 1");
   }
   if (config.bladder.initialFillRange[0] > config.bladder.initialFillRange[1]) {
     throw new Error("initialFillRange minimum must be <= maximum");
+  }
+  if (config.bladder.baseFillPerSecond < 0) {
+    throw new Error("bladder.baseFillPerSecond must be non-negative");
+  }
+  if (
+    !isUnitInterval(config.bladder.requestThreshold) ||
+    !isUnitInterval(config.bladder.desperateThreshold)
+  ) {
+    throw new Error("bladder thresholds must be between 0 and 1");
+  }
+  if (config.bladder.requestThreshold > config.bladder.desperateThreshold) {
+    throw new Error("bladder.requestThreshold must be <= desperateThreshold");
   }
   if (config.lavatory.minimumWalkSeconds < 0 || config.lavatory.walkSecondsPerRow < 0) {
     throw new Error("lavatory walk timings must be non-negative");
@@ -1161,6 +1173,16 @@ function validateConfig(config: LevelConfig): void {
   if (config.loss.maxStrikes < 1) {
     throw new Error("loss.maxStrikes must be at least 1");
   }
+  if (config.loss.panicGraceSeconds < 0) {
+    throw new Error("loss.panicGraceSeconds must be non-negative");
+  }
+  if (!isUnitInterval(config.loss.strikeRecoveryFillPercent)) {
+    throw new Error("loss.strikeRecoveryFillPercent must be between 0 and 1");
+  }
+}
+
+function isUnitInterval(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 function toUrgency(passenger: Passenger): PassengerUrgency {

@@ -40,6 +40,43 @@ test("passenger generation is deterministic for the same seed", () => {
   );
 });
 
+test("invalid level tuning fails fast", () => {
+  assert.throws(
+    () =>
+      createInitialState({
+        ...tinyReadableCabin,
+        bladder: {
+          ...tinyReadableCabin.bladder,
+          requestThreshold: 1.1
+        }
+      }),
+    /bladder thresholds must be between 0 and 1/
+  );
+  assert.throws(
+    () =>
+      createInitialState({
+        ...tinyReadableCabin,
+        bladder: {
+          ...tinyReadableCabin.bladder,
+          requestThreshold: 0.95,
+          desperateThreshold: 0.9
+        }
+      }),
+    /bladder\.requestThreshold must be <= desperateThreshold/
+  );
+  assert.throws(
+    () =>
+      createInitialState({
+        ...tinyReadableCabin,
+        loss: {
+          ...tinyReadableCabin.loss,
+          strikeRecoveryFillPercent: -0.1
+        }
+      }),
+    /loss\.strikeRecoveryFillPercent must be between 0 and 1/
+  );
+});
+
 test("unattended low-pressure flight can win at landing", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
