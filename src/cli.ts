@@ -119,16 +119,16 @@ function parseArgs(args: string[]): CliOptions {
     const arg = args[index];
     const value = args[index + 1];
     if (arg === "--seed" && value !== undefined) {
-      parsed.seed = Number(value);
+      parsed.seed = parseFiniteNumber(value, "--seed");
       index += 1;
     } else if (arg === "--duration" && value !== undefined) {
-      parsed.duration = Number(value);
+      parsed.duration = parsePositiveFiniteNumber(value, "--duration");
       index += 1;
     } else if (arg === "--dt" && value !== undefined) {
-      parsed.dt = Number(value);
+      parsed.dt = parsePositiveFiniteNumber(value, "--dt");
       index += 1;
     } else if (arg === "--summary-interval" && value !== undefined) {
-      parsed.summaryInterval = Number(value);
+      parsed.summaryInterval = parsePositiveFiniteNumber(value, "--summary-interval");
       index += 1;
     } else if (arg === "--assign" && value !== undefined) {
       const assignmentParts = value.split(":");
@@ -143,5 +143,21 @@ function parseArgs(args: string[]): CliOptions {
     }
   }
 
+  return parsed;
+}
+
+function parseFiniteNumber(value: string, optionName: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${optionName} must be a finite number`);
+  }
+  return parsed;
+}
+
+function parsePositiveFiniteNumber(value: string, optionName: string): number {
+  const parsed = parseFiniteNumber(value, optionName);
+  if (parsed <= 0) {
+    throw new Error(`${optionName} must be positive`);
+  }
   return parsed;
 }

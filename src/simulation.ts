@@ -90,24 +90,25 @@ export function createInitialState(config: LevelConfig): SimulationState {
 }
 
 export function tick(state: SimulationState, dt: number): SimulationState {
-  if (dt <= 0) {
-    throw new Error("dt must be positive");
+  if (!Number.isFinite(dt) || dt <= 0) {
+    throw new Error("dt must be a positive finite number");
   }
 
   if (state.status !== "running") {
     return state;
   }
 
-  state.time = Math.min(state.time + dt, state.config.durationSeconds);
+  const elapsedSeconds = Math.min(dt, state.config.durationSeconds - state.time);
+  state.time = Math.min(state.time + elapsedSeconds, state.config.durationSeconds);
 
-  updateLavatoryProgress(state, dt);
+  updateLavatoryProgress(state, elapsedSeconds);
 
   for (const passenger of state.passengers) {
     if (passenger.state === "UsingLavatory") {
       continue;
     }
 
-    const lost = updatePassengerBladder(state, passenger, dt);
+    const lost = updatePassengerBladder(state, passenger, elapsedSeconds);
     if (lost) {
       break;
     }
@@ -1385,8 +1386,8 @@ function validateConfig(config: LevelConfig): void {
   if (config.aircraft.lavatories.length < 1) {
     throw new Error("aircraft.lavatories must contain lavatories");
   }
-  if (config.durationSeconds <= 0) {
-    throw new Error("durationSeconds must be positive");
+  if (!Number.isFinite(config.durationSeconds) || config.durationSeconds <= 0) {
+    throw new Error("durationSeconds must be a positive finite number");
   }
   if (!isUnitInterval(config.bladder.initialFillRange[0]) || !isUnitInterval(config.bladder.initialFillRange[1])) {
     throw new Error("initialFillRange must be between 0 and 1");

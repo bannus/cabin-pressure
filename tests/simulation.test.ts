@@ -103,6 +103,36 @@ test("unattended low-pressure flight can win at landing", () => {
   assert.equal(result.events.at(-1)?.type, "win");
 });
 
+test("tick only advances systems by remaining time before landing", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 1,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"]
+    },
+    passengerMix: { normal: 1 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0, 0],
+      baseFillPerSecond: 50
+    },
+    loss: {
+      ...tinyReadableCabin.loss,
+      panicGraceSeconds: 1,
+      maxStrikes: 1
+    }
+  };
+  const state = createInitialState(config);
+
+  tick(state, 1000);
+
+  assert.equal(state.status, "won");
+  assert.equal(state.strikes, 0);
+  assert.equal(state.time, 1);
+});
+
 test("panic grace produces strikes and loss", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
@@ -917,5 +947,24 @@ test("CLI rejects malformed lavatory assignments", () => {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /--assign must use PASSENGER_ID:LAVATORY_ID/);
+  }
+});
+
+test("CLI rejects invalid numeric options without hanging", () => {
+  const cliPath = join(__dirname, "../src/cli.js");
+
+  for (const [option, value, message] of [
+    ["--dt", "foo", "--dt must be a finite number"],
+    ["--dt", "0", "--dt must be positive"],
+    ["--duration", "Infinity", "--duration must be a finite number"],
+    ["--summary-interval", "-1", "--summary-interval must be positive"]
+  ]) {
+    const result = spawnSync(process.execPath, [cliPath, option, value], {
+      encoding: "utf8",
+      timeout: 1000
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(message));
   }
 });
