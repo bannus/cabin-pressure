@@ -72,6 +72,13 @@ Implemented features:
 Add inner-seat dependencies, blockers standing into the aisle, stand/sit timers,
 and stand cooldowns.
 
+Implemented features:
+
+- inner seats require seated blockers between them and the aisle to stand first
+- blockers and sitting passengers occupy aisle cells while standing/sitting
+- configurable stand, sit, and stand-cooldown timers
+- blocked assignments wait until required blockers are available
+
 ## Milestone 5: Beverage cart
 
 Add a physical cart, row service, delayed bladder-rate modifiers, and debug

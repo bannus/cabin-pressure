@@ -21,7 +21,7 @@ for (const assignment of options.assignments) {
 let nextSummaryAt = 0;
 let printedEvents = 0;
 
-console.log(`Cabin Pressure milestone 3 simulation`);
+console.log(`Cabin Pressure milestone 4 simulation`);
 console.log(`Level: ${config.name} (${config.id})`);
 console.log(`Seed: ${config.seed}`);
 console.log(`Duration: ${config.durationSeconds}s`);
