@@ -1,4 +1,5 @@
 export { tinyReadableCabin, withLevelOverrides } from "./config";
+export { estimateLavatoryDemand } from "./level-metrics";
 export {
   assignPassengerToLavatory,
   createInitialState,

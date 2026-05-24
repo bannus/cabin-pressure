@@ -1,4 +1,5 @@
 import { tinyReadableCabin, withLevelOverrides } from "./config";
+import { estimateLavatoryDemand } from "./level-metrics";
 import { assignPassengerToLavatory, summarize, tick, createInitialState } from "./simulation";
 
 interface CliOptions {
@@ -15,6 +16,7 @@ const config = withLevelOverrides(tinyReadableCabin, {
   durationSeconds: options.duration
 });
 const state = createInitialState(config);
+const lavatoryEstimate = estimateLavatoryDemand(config);
 for (const assignment of options.assignments) {
   assignPassengerToLavatory(state, assignment.passengerId, assignment.lavatoryId);
 }
@@ -27,6 +29,11 @@ console.log(`Seed: ${config.seed}`);
 console.log(`Duration: ${config.durationSeconds}s`);
 console.log(`Passengers: ${state.passengers.length}`);
 console.log(`Lavatories: ${state.lavatories.map((lavatory) => lavatory.id).join(", ")}`);
+console.log(
+  `Lavatory demand ratio: ${lavatoryEstimate.demandToSupplyRatio.toFixed(3)} ` +
+    `(demand=${lavatoryEstimate.expectedDemandSeconds.toFixed(1)}s ` +
+    `supply=${lavatoryEstimate.perfectUtilizationSupplySeconds.toFixed(1)}s)`
+);
 console.log(`Beverage cart: ${state.beverageCart ? state.beverageCart.state : "not configured"}`);
 console.log(`Turbulence: ${state.turbulence ? state.turbulence.phase : "not configured"}`);
 console.log("");
