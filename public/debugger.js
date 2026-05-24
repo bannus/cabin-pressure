@@ -1,4 +1,4 @@
-const config = {
+const baseConfig = {
   id: "tiny-readable-cabin",
   name: "Tiny Readable Cabin",
   durationSeconds: 180,
@@ -44,6 +44,58 @@ const config = {
   }
 };
 
+const configPresets = [
+  baseConfig,
+  {
+    ...baseConfig,
+    id: "short-chaos-check",
+    name: "Short Chaos Check",
+    durationSeconds: 120,
+    seed: 424242,
+    initialFillRange: [0.35, 0.72],
+    baseFillPerSecond: 100 / 260,
+    beverageCart: {
+      ...baseConfig.beverageCart,
+      bladderRateMultiplier: 1.55,
+      bladderRateDelaySeconds: 8,
+      bladderRateDurationSeconds: 55,
+      autoStart: true
+    },
+    turbulence: {
+      ...baseConfig.turbulence,
+      warningSeconds: 3,
+      autoStartSeconds: 45
+    },
+    babyDiaper: {
+      ...baseConfig.babyDiaper,
+      firstEventSeconds: [15, 35],
+      repeatEventSeconds: [35, 60]
+    }
+  },
+  {
+    ...baseConfig,
+    id: "calm-readability-pass",
+    name: "Calm Readability Pass",
+    durationSeconds: 240,
+    seed: 777,
+    initialFillRange: [0, 0.12],
+    baseFillPerSecond: 100 / 460,
+    turbulence: {
+      ...baseConfig.turbulence,
+      seatBeltSignChance: 0,
+      autoStartSeconds: undefined
+    },
+    babyDiaper: {
+      ...baseConfig.babyDiaper,
+      firstEventSeconds: [70, 110],
+      repeatEventSeconds: [90, 130]
+    }
+  }
+];
+
+let activePresetId = baseConfig.id;
+let config = cloneConfig(baseConfig);
+
 const archetypes = {
   normal: { capacity: 100, multiplier: 1 },
   smallBladder: { capacity: 75, multiplier: 1.2 },
@@ -68,35 +120,12 @@ const configElement = document.querySelector("#config");
 const eventLogElement = document.querySelector("#eventLog");
 const playPauseElement = document.querySelector("#playPause");
 const speedElement = document.querySelector("#speed");
+const configPickerElement = document.querySelector("#configPicker");
+const seedInputElement = document.querySelector("#seedInput");
+const summaryElement = document.querySelector("#summary");
+const watchlistElement = document.querySelector("#watchlist");
 
-configElement.textContent = JSON.stringify(
-  {
-    id: config.id,
-    seed: config.seed,
-    durationSeconds: config.durationSeconds,
-    rows: config.rows,
-    seatLayout: config.seatLayout,
-    lavatories: config.lavatories,
-    bladder: {
-      initialFillRange: config.initialFillRange,
-      baseFillPerSecond: config.baseFillPerSecond,
-      requestThreshold: config.requestThreshold,
-      desperateThreshold: config.desperateThreshold
-    },
-    lavatoryTiming: {
-      minimumWalkSeconds: config.minimumWalkSeconds,
-      walkSecondsPerRow: config.walkSecondsPerRow,
-      passingSlowdownMultiplier: config.passingSlowdownMultiplier,
-      useDurationSeconds: config.useDurationSeconds
-    },
-    seatBlockers: config.seatBlockers,
-    beverageCart: config.beverageCart,
-    turbulence: config.turbulence,
-    babyDiaper: config.babyDiaper
-  },
-  null,
-  2
-);
+initializeConfigControls();
 
 playPauseElement.addEventListener("click", () => {
   playing = !playing;
@@ -104,6 +133,15 @@ playPauseElement.addEventListener("click", () => {
 });
 speedElement.addEventListener("change", () => {
   speed = Number(speedElement.value);
+});
+configPickerElement.addEventListener("change", () => {
+  activePresetId = configPickerElement.value;
+  const preset = configPresets.find((candidate) => candidate.id === activePresetId) ?? baseConfig;
+  seedInputElement.value = String(preset.seed);
+  applyConfigSelection();
+});
+seedInputElement.addEventListener("change", () => {
+  applyConfigSelection();
 });
 document.querySelector("#step").addEventListener("click", () => {
   tick(1);
@@ -117,16 +155,97 @@ document.querySelector("#startTurbulence").addEventListener("click", () => {
   startTurbulence();
   render();
 });
-document.querySelector("#reset").addEventListener("click", () => {
-  state = createState();
-  selectedPassengerId = state.passengers[0].id;
-  playing = true;
-  playPauseElement.textContent = "Pause";
+document.querySelector("#forceDiaper").addEventListener("click", () => {
+  forceSelectedDiaper();
   render();
+});
+document.querySelector("#fillSelected").addEventListener("click", () => {
+  setSelectedBladder(1);
+  render();
+});
+document.querySelector("#emptySelected").addEventListener("click", () => {
+  setSelectedBladder(0);
+  render();
+});
+document.querySelector("#assignNeediest").addEventListener("click", () => {
+  assignNeediestPassenger();
+  render();
+});
+document.querySelector("#reset").addEventListener("click", () => {
+  resetSimulation();
 });
 
 requestAnimationFrame(loop);
 render();
+
+function initializeConfigControls() {
+  configPickerElement.innerHTML = "";
+  for (const preset of configPresets) {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.name;
+    configPickerElement.append(option);
+  }
+  configPickerElement.value = activePresetId;
+  seedInputElement.value = String(config.seed);
+  updateConfigDisplay();
+}
+
+function applyConfigSelection() {
+  const preset = configPresets.find((candidate) => candidate.id === activePresetId) ?? baseConfig;
+  config = cloneConfig(preset);
+  const parsedSeed = Number(seedInputElement.value);
+  if (Number.isFinite(parsedSeed) && parsedSeed > 0) {
+    config.seed = Math.floor(parsedSeed);
+  }
+  seedInputElement.value = String(config.seed);
+  resetSimulation();
+}
+
+function resetSimulation() {
+  state = createState();
+  selectedPassengerId = state.passengers[0].id;
+  playing = true;
+  playPauseElement.textContent = "Pause";
+  updateConfigDisplay();
+  render();
+}
+
+function updateConfigDisplay() {
+  configElement.textContent = JSON.stringify(
+    {
+      id: config.id,
+      name: config.name,
+      seed: config.seed,
+      durationSeconds: config.durationSeconds,
+      rows: config.rows,
+      seatLayout: config.seatLayout,
+      lavatories: config.lavatories,
+      bladder: {
+        initialFillRange: config.initialFillRange,
+        baseFillPerSecond: config.baseFillPerSecond,
+        requestThreshold: config.requestThreshold,
+        desperateThreshold: config.desperateThreshold
+      },
+      lavatoryTiming: {
+        minimumWalkSeconds: config.minimumWalkSeconds,
+        walkSecondsPerRow: config.walkSecondsPerRow,
+        passingSlowdownMultiplier: config.passingSlowdownMultiplier,
+        useDurationSeconds: config.useDurationSeconds
+      },
+      seatBlockers: config.seatBlockers,
+      beverageCart: config.beverageCart,
+      turbulence: config.turbulence,
+      babyDiaper: config.babyDiaper
+    },
+    null,
+    2
+  );
+}
+
+function cloneConfig(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 
 function loop(now) {
   const elapsed = (now - lastFrame) / 1000;
@@ -187,7 +306,7 @@ function createState() {
       });
     }
   }
-  return {
+  const initialState = {
     time: 0,
     status: "running",
     passengers,
@@ -212,6 +331,12 @@ function createState() {
     },
     events: []
   };
+  if (config.beverageCart.autoStart) {
+    initialState.events.push({ time: 0, message: "Beverage cart auto-start is enabled for this config." });
+    initialState.beverageCart.state = "servicing";
+    initialState.beverageCart.serviceSecondsRemaining = beverageRowServiceSeconds(0);
+  }
+  return initialState;
 }
 
 function tick(dt) {
@@ -341,6 +466,48 @@ function assign(passengerId, lavatoryId) {
       : `${passenger.id} assigned to ${lavatoryId} lavatory.`
   );
   render();
+}
+
+function forceSelectedDiaper() {
+  const passenger = findPassenger(selectedPassengerId);
+  if (passenger.archetype !== "babyAttachedAdult") {
+    log(`${passenger.id} is not attached to a baby.`);
+    return;
+  }
+  passenger.babyDiaperNeedsChange = true;
+  passenger.babyDiaperSecondsRemaining = undefined;
+  if (passenger.state === "Seated") {
+    passenger.state = "NeedsToGo";
+  }
+  log(`${passenger.id}'s baby diaper change was forced.`);
+}
+
+function setSelectedBladder(percent) {
+  const passenger = findPassenger(selectedPassengerId);
+  passenger.rawBladder = passenger.capacity * percent;
+  if (percent >= 1) {
+    abandonLavatoryAssignment(passenger);
+    passenger.state = "Panic";
+  } else if (percent >= config.requestThreshold && passenger.state === "Seated") {
+    passenger.state = "NeedsToGo";
+  } else if (percent < config.requestThreshold && ["NeedsToGo", "Panic", "WaitingForSeatBlockers", "Standing", "WalkingToLavatory", "QueuedForLavatory"].includes(passenger.state)) {
+    abandonLavatoryAssignment(passenger);
+    passenger.state = "Seated";
+  }
+  log(`${passenger.id} bladder set to ${Math.round(percent * 100)}%.`);
+}
+
+function assignNeediestPassenger() {
+  const passenger = [...state.passengers]
+    .filter((candidate) => ["Seated", "NeedsToGo", "Panic", "WaitingForSeatBlockers", "Standing", "WalkingToLavatory", "QueuedForLavatory"].includes(candidate.state))
+    .sort((left, right) => urgencyScore(right) - urgencyScore(left))[0];
+  if (!passenger) {
+    log("No assignable passenger found.");
+    return;
+  }
+  selectedPassengerId = passenger.id;
+  const lavatory = nearestLavatory(passenger);
+  assign(passenger.id, lavatory.id);
 }
 
 function updateSeatBlockers(dt) {
@@ -604,6 +771,8 @@ function render() {
   }
   cabinElement.append(lavatoryMarker("rear"));
   renderSelected();
+  renderSummary();
+  renderWatchlist();
   renderLavatories();
   renderBeverageCart();
   renderTurbulence();
@@ -650,7 +819,7 @@ function lavatoryMarker(id) {
 
 function renderSelected() {
   const passenger = findPassenger(selectedPassengerId);
-  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>diaper: ${passenger.babyDiaperNeedsChange ? "needs change" : passenger.babyDiaperSecondsRemaining === undefined ? "-" : `${passenger.babyDiaperSecondsRemaining.toFixed(1)}s`} · changes: ${passenger.babyDiaperChangeCount}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}<br>blocking: ${passenger.blockingPassengerId ?? "-"} · cooldown: ${passenger.standCooldownSecondsRemaining.toFixed(1)}s`;
+  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>diaper: ${passenger.babyDiaperNeedsChange ? "needs change" : passenger.babyDiaperSecondsRemaining === undefined ? "-" : `${passenger.babyDiaperSecondsRemaining.toFixed(1)}s`} · changes: ${passenger.babyDiaperChangeCount}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · destination: ${passenger.destinationAisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}<br>movement step: ${passenger.movementStepSecondsRemaining.toFixed(1)}s · lavatory: ${passenger.lavatorySecondsRemaining.toFixed(1)}s<br>beverage multiplier: ${passenger.beverageRateMultiplier.toFixed(2)}x<br>blocking: ${passenger.blockingPassengerId ?? "-"} · cooldown: ${passenger.standCooldownSecondsRemaining.toFixed(1)}s`;
   assignmentElement.innerHTML = "";
   for (const lavatory of state.lavatories) {
     const button = document.createElement("button");
@@ -659,6 +828,71 @@ function renderSelected() {
     button.addEventListener("click", () => assign(passenger.id, lavatory.id));
     assignmentElement.append(button);
   }
+}
+
+function renderSummary() {
+  const counts = passengerStateCounts();
+  const needToGo = (counts.NeedsToGo ?? 0) + (counts.Panic ?? 0);
+  const inMotion =
+    (counts.WaitingForSeatBlockers ?? 0) +
+    (counts.Standing ?? 0) +
+    (counts.WalkingToLavatory ?? 0) +
+    (counts.QueuedForLavatory ?? 0) +
+    (counts.ReturningToSeat ?? 0) +
+    (counts.Sitting ?? 0);
+  const averageBladder =
+    state.passengers.reduce((sum, passenger) => sum + bladderPercent(passenger), 0) / state.passengers.length;
+  const diapers = state.passengers.filter((passenger) => passenger.babyDiaperNeedsChange).length;
+  const queueDepth = state.lavatories.reduce((sum, lavatory) => sum + lavatory.queue.length, 0);
+
+  summaryElement.innerHTML = `<div class="summary-grid">
+    <div class="stat"><strong>${needToGo}</strong> need help</div>
+    <div class="stat"><strong>${inMotion}</strong> in aisle/queue</div>
+    <div class="stat"><strong>${Math.round(averageBladder * 100)}%</strong> avg bladder</div>
+    <div class="stat"><strong>${queueDepth}</strong> queued</div>
+    <div class="stat"><strong>${diapers}</strong> diapers</div>
+    <div class="stat"><strong>${state.strikes ?? 0}</strong> strikes</div>
+  </div>`;
+}
+
+function renderWatchlist() {
+  watchlistElement.innerHTML = "";
+  const watchedPassengers = [...state.passengers]
+    .sort((left, right) => urgencyScore(right) - urgencyScore(left))
+    .slice(0, 6);
+
+  for (const passenger of watchedPassengers) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "watchlist-card";
+    button.innerHTML = `<strong>${passenger.id}</strong> ${passenger.row}${passenger.seat} · ${Math.round(
+      bladderPercent(passenger) * 100
+    )}%<br>${passenger.state} · ${passenger.archetype}${
+      passenger.babyDiaperNeedsChange ? " · diaper" : ""
+    }`;
+    button.addEventListener("click", () => {
+      selectedPassengerId = passenger.id;
+      render();
+    });
+    watchlistElement.append(button);
+  }
+}
+
+function passengerStateCounts() {
+  const counts = {};
+  for (const passenger of state.passengers) {
+    counts[passenger.state] = (counts[passenger.state] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function urgencyScore(passenger) {
+  return (
+    bladderPercent(passenger) * 100 +
+    (passenger.state === "Panic" ? 50 : 0) +
+    (passenger.babyDiaperNeedsChange ? 35 : 0) +
+    (passenger.state === "NeedsToGo" ? 15 : 0)
+  );
 }
 
 function renderBeverageCart() {
@@ -1143,6 +1377,13 @@ function findPassenger(id) {
 
 function findLavatory(id) {
   return state.lavatories.find((lavatory) => lavatory.id === id);
+}
+
+function nearestLavatory(passenger) {
+  return [...state.lavatories].sort(
+    (left, right) =>
+      Math.abs(passenger.row - left.row) + left.queue.length - (Math.abs(passenger.row - right.row) + right.queue.length)
+  )[0];
 }
 
 function createRng(seed) {
