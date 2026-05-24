@@ -9,10 +9,18 @@
   <body>
     <header>
       <div>
-        <p class="eyebrow">Milestone 7</p>
+        <p class="eyebrow">Milestone 8</p>
         <h1>Cabin Pressure Debugger</h1>
       </div>
       <div class="controls" aria-label="simulation controls">
+        <label>
+          Config
+          <select id="configPicker"></select>
+        </label>
+        <label>
+          Seed
+          <input id="seedInput" type="number" min="1" step="1" />
+        </label>
         <button id="playPause" type="button">Pause</button>
         <label>
           Speed
@@ -24,8 +32,6 @@
           </select>
         </label>
         <button id="step" type="button">Step</button>
-        <button id="startCart" type="button">Start beverage cart</button>
-        <button id="startTurbulence" type="button">Start turbulence</button>
         <button id="reset" type="button">Reset</button>
       </div>
     </header>
@@ -44,6 +50,28 @@
           <h2>Selected passenger</h2>
           <div id="selectedPassenger" class="selected-passenger">Select a passenger.</div>
           <div id="assignmentButtons" class="assignment-buttons"></div>
+        </section>
+
+        <section>
+          <h2>Debug actions</h2>
+          <div class="debug-buttons" aria-label="debug actions">
+            <button id="startCart" type="button">Start cart</button>
+            <button id="startTurbulence" type="button">Start turbulence</button>
+            <button id="forceDiaper" type="button">Force diaper</button>
+            <button id="fillSelected" type="button">Fill selected</button>
+            <button id="emptySelected" type="button">Empty selected</button>
+            <button id="assignNeediest" type="button">Assign neediest</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Playtest summary</h2>
+          <div id="summary" class="selected-passenger"></div>
+        </section>
+
+        <section>
+          <h2>Passenger watchlist</h2>
+          <div id="watchlist" class="watchlist"></div>
         </section>
 
         <section>
