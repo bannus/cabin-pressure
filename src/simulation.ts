@@ -11,7 +11,8 @@ import type {
   PassengerUrgency,
   SimulationEvent,
   SimulationState,
-  SimulationSummary
+  SimulationSummary,
+  Turbulence
 } from "./types";
 
 const ARCHETYPE_ORDER: PassengerArchetype[] = [
@@ -70,6 +71,7 @@ export function createInitialState(config: LevelConfig): SimulationState {
       queue: []
     })),
     beverageCart: buildBeverageCart(config),
+    turbulence: buildTurbulence(config),
     events: []
   };
 
@@ -135,6 +137,10 @@ export function assignPassengerToLavatory(
   const passenger = findPassenger(state, passengerId);
   const lavatory = findLavatory(state, lavatoryId);
 
+  if (isSeatBeltSignOn(state)) {
+    throw new Error("cannot assign passengers while the seat belt sign is on");
+  }
+
   if (
     passenger.state === "UsingLavatory" ||
     passenger.state === "ReturningToSeat" ||
@@ -177,6 +183,39 @@ export function assignPassengerToLavatory(
 export function startBeverageCart(state: SimulationState): SimulationState {
   if (state.status !== "running") {
     throw new Error("cannot start beverage cart after simulation has ended");
+  }
+
+  export function startTurbulence(state: SimulationState): SimulationState {
+    if (state.status !== "running") {
+      throw new Error("cannot start turbulence after simulation has ended");
+    }
+
+    const turbulence = state.turbulence;
+    if (turbulence === undefined) {
+      throw new Error("level does not configure turbulence");
+    }
+
+    if (turbulence.phase !== "idle") {
+      return state;
+    }
+
+    turbulence.hasAutoStarted = true;
+    turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn(state);
+    turbulence.warningSecondsRemaining = requireTurbulenceConfig(state).warningSeconds;
+    turbulence.activeSecondsRemaining = 0;
+
+    if (turbulence.warningSecondsRemaining > 0) {
+      turbulence.phase = "warning";
+      addEvent(
+        state,
+        "turbulenceWarning",
+        `Turbulence warning: seat belt sign possible in ${turbulence.warningSecondsRemaining}s.`
+      );
+    } else {
+      finishTurbulenceWarning(state, turbulence);
+    }
+
+    return state;
   }
 
   const cart = state.beverageCart;
@@ -244,6 +283,7 @@ export function summarize(state: SimulationState, urgentLimit = 5): SimulationSu
           passengerIdsServed: [...state.beverageCart.passengerIdsServed]
         }
       : undefined,
+    turbulence: state.turbulence ? { ...state.turbulence } : undefined,
     mostUrgent: urgency.slice(0, urgentLimit)
   };
 }
@@ -253,6 +293,7 @@ export function bladderPercent(passenger: Passenger): number {
 }
 
 function updateLavatoryProgress(state: SimulationState, dt: number): void {
+  updateTurbulenceProgress(state, dt);
   updateBeverageCartProgress(state, dt);
   updateSeatBlockerProgress(state, dt);
 
@@ -356,6 +397,20 @@ function startSeatExit(
   lavatoryRow: number,
   logBlocked = true
 ): void {
+  if (isSeatBeltSignOn(state)) {
+    passenger.state =
+      bladderPercent(passenger) >= state.config.bladder.requestThreshold ? "NeedsToGo" : "Seated";
+    passenger.assignedLavatoryId = undefined;
+    passenger.aisleRow = undefined;
+    passenger.destinationAisleRow = undefined;
+    passenger.queuePosition = undefined;
+    passenger.movementSecondsRemaining = 0;
+    passenger.movementStepSecondsRemaining = 0;
+    passenger.standSecondsRemaining = 0;
+    refreshAisleCells(state);
+    return;
+  }
+
   releaseSeatBlockers(state, passenger.id);
 
   const blockers = seatExitBlockers(state, passenger);
@@ -892,6 +947,140 @@ function buildBeverageCart(config: LevelConfig): BeverageCart | undefined {
   };
 }
 
+function buildTurbulence(config: LevelConfig): Turbulence | undefined {
+  if (config.turbulence === undefined) {
+    return undefined;
+  }
+
+  return {
+    phase: "idle",
+    warningSecondsRemaining: 0,
+    activeSecondsRemaining: 0,
+    hasAutoStarted: false
+  };
+}
+
+function updateTurbulenceProgress(state: SimulationState, dt: number): void {
+  const turbulence = state.turbulence;
+  const turbulenceConfig = state.config.turbulence;
+  if (turbulence === undefined || turbulenceConfig === undefined) {
+    return;
+  }
+
+  if (
+    turbulence.phase === "idle" &&
+    turbulenceConfig.autoStartSeconds !== undefined &&
+    !turbulence.hasAutoStarted &&
+    state.time >= turbulenceConfig.autoStartSeconds
+  ) {
+    startTurbulence(state);
+  }
+
+  if (turbulence.phase === "warning") {
+    turbulence.warningSecondsRemaining = Math.max(0, turbulence.warningSecondsRemaining - dt);
+    if (turbulence.warningSecondsRemaining === 0) {
+      finishTurbulenceWarning(state, turbulence);
+    }
+    return;
+  }
+
+  if (turbulence.phase === "active") {
+    turbulence.activeSecondsRemaining = Math.max(0, turbulence.activeSecondsRemaining - dt);
+    if (turbulence.activeSecondsRemaining === 0) {
+      turbulence.phase = "idle";
+      turbulence.willTurnSeatBeltSignOn = undefined;
+      addEvent(state, "seatBeltSignOff", "Seat belt sign turned off.");
+    }
+  }
+}
+
+function finishTurbulenceWarning(state: SimulationState, turbulence: Turbulence): void {
+  if (turbulence.willTurnSeatBeltSignOn !== true) {
+    turbulence.phase = "idle";
+    turbulence.warningSecondsRemaining = 0;
+    turbulence.activeSecondsRemaining = 0;
+    turbulence.willTurnSeatBeltSignOn = undefined;
+    addEvent(state, "seatBeltSignSkipped", "Turbulence passed without the seat belt sign.");
+    return;
+  }
+
+  turbulence.phase = "active";
+  turbulence.warningSecondsRemaining = 0;
+  turbulence.activeSecondsRemaining = turbulenceDurationSeconds(state);
+  addEvent(
+    state,
+    "seatBeltSignOn",
+    `Seat belt sign turned on for ${turbulence.activeSecondsRemaining.toFixed(1)}s.`
+  );
+  forceAislePassengersToReturn(state);
+}
+
+function forceAislePassengersToReturn(state: SimulationState): void {
+  for (const passenger of state.passengers) {
+    if (passenger.state === "UsingLavatory" || passenger.state === "ReturningToSeat") {
+      continue;
+    }
+
+    if (
+      passenger.state === "WalkingToLavatory" ||
+      passenger.state === "QueuedForLavatory" ||
+      passenger.state === "Standing" ||
+      passenger.state === "WaitingForSeatBlockers"
+    ) {
+      const returnStartRow = passenger.aisleRow;
+      abandonLavatoryAssignment(state, passenger);
+      if (returnStartRow !== undefined && returnStartRow !== passenger.row) {
+        passenger.state = "ReturningToSeat";
+        startAisleMovement(state, passenger, passenger.row, returnStartRow);
+      } else if (returnStartRow !== undefined) {
+        passenger.aisleRow = returnStartRow;
+        startSitting(state, passenger);
+      } else {
+        passenger.state =
+          bladderPercent(passenger) >= state.config.bladder.requestThreshold ? "NeedsToGo" : "Seated";
+      }
+      addEvent(state, "forcedReturn", `${passenger.id} returned because the seat belt sign is on.`, passenger.id);
+    }
+  }
+
+  refreshAisleCells(state);
+}
+
+function isSeatBeltSignOn(state: SimulationState): boolean {
+  return state.turbulence?.phase === "active";
+}
+
+function shouldTurnSeatBeltSignOn(state: SimulationState): boolean {
+  const chance = requireTurbulenceConfig(state).seatBeltSignChance;
+  if (chance <= 0) {
+    return false;
+  }
+  if (chance >= 1) {
+    return true;
+  }
+
+  const hash = hashString(`${state.config.seed}:turbulence:${state.time}:sign`);
+  return hash < chance;
+}
+
+function turbulenceDurationSeconds(state: SimulationState): number {
+  const [min, max] = requireTurbulenceConfig(state).durationSeconds;
+  if (min === max) {
+    return min;
+  }
+
+  const hash = hashString(`${state.config.seed}:turbulence:${state.time}:duration`);
+  return min + (max - min) * hash;
+}
+
+function requireTurbulenceConfig(state: SimulationState) {
+  const turbulenceConfig = state.config.turbulence;
+  if (turbulenceConfig === undefined) {
+    throw new Error("level does not configure turbulence");
+  }
+  return turbulenceConfig;
+}
+
 function updateBeverageCartProgress(state: SimulationState, dt: number): void {
   const cart = state.beverageCart;
   if (cart === undefined) {
@@ -1168,6 +1357,27 @@ function validateConfig(config: LevelConfig): void {
       config.beverageCart.bladderRateDurationSeconds < 0
     ) {
       throw new Error("beverage cart bladder modifier timings must be non-negative");
+    }
+  }
+  if (config.turbulence !== undefined) {
+    if (config.turbulence.warningSeconds < 0) {
+      throw new Error("turbulence.warningSeconds must be non-negative");
+    }
+    if (
+      config.turbulence.durationSeconds[0] < 0 ||
+      config.turbulence.durationSeconds[1] < 0 ||
+      config.turbulence.durationSeconds[0] > config.turbulence.durationSeconds[1]
+    ) {
+      throw new Error("turbulence.durationSeconds must be a non-negative range");
+    }
+    if (!isUnitInterval(config.turbulence.seatBeltSignChance)) {
+      throw new Error("turbulence.seatBeltSignChance must be between 0 and 1");
+    }
+    if (
+      config.turbulence.autoStartSeconds !== undefined &&
+      config.turbulence.autoStartSeconds < 0
+    ) {
+      throw new Error("turbulence.autoStartSeconds must be non-negative");
     }
   }
   if (config.loss.maxStrikes < 1) {

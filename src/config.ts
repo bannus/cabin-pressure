@@ -44,6 +44,12 @@ export const tinyReadableCabin: LevelConfig = {
     bladderRateDurationSeconds: 45,
     autoStart: false
   },
+  turbulence: {
+    warningSeconds: 5,
+    durationSeconds: [10, 16],
+    seatBeltSignChance: 1,
+    autoStartSeconds: 90
+  },
   loss: {
     panicGraceSeconds: 8,
     maxStrikes: 3,
