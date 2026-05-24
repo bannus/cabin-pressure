@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import test from "node:test";
 import { tinyReadableCabin } from "../src/config";
@@ -968,3 +968,73 @@ test("CLI rejects invalid numeric options without hanging", () => {
     assert.match(result.stderr, new RegExp(message));
   }
 });
+
+test("CLI interactive mode accepts live commands", async () => {
+  const cliPath = join(__dirname, "../src/cli.js");
+  const child = spawn(
+    process.execPath,
+    [cliPath, "--interactive", "--duration", "20", "--dt", "0.5", "--summary-interval", "30"],
+    {
+      stdio: ["pipe", "pipe", "pipe"]
+    }
+  );
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  await waitForOutput(() => stdout, /Interactive mode enabled/);
+
+  child.stdin.write("help\n");
+  await waitForOutput(() => stdout, /Commands:/);
+
+  child.stdin.write("pause\n");
+  await waitForOutput(() => stdout, /simulation paused\./);
+
+  child.stdin.write("assign P001 front\n");
+  await waitForOutput(() => stdout, /P001 assigned to front lavatory\./);
+
+  child.stdin.write("cart start\n");
+  await waitForOutput(() => stdout, /beverage cart started service/);
+
+  child.stdin.write("turbulence start\n");
+  await waitForOutput(() => stdout, /Turbulence warning:/);
+
+  child.stdin.write("resume\n");
+  await waitForOutput(() => stdout, /simulation resumed\./);
+
+  child.stdin.write("quit\n");
+  const exitCode = await waitForExit(child);
+
+  assert.equal(exitCode, 0);
+  assert.match(stdout, /Result: RUNNING with 0 strike\(s\)\. \(quit early\)/);
+  assert.equal(stderr.trim(), "");
+});
+
+async function waitForOutput(
+  readOutput: () => string,
+  pattern: RegExp,
+  timeoutMs = 2000
+): Promise<void> {
+  const start = Date.now();
+  while (!pattern.test(readOutput())) {
+    if (Date.now() - start >= timeoutMs) {
+      throw new Error(`Timed out waiting for output: ${pattern}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function waitForExit(child: ReturnType<typeof spawn>): Promise<number | null> {
+  return await new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("exit", (code) => resolve(code));
+  });
+}
