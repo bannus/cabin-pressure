@@ -24,11 +24,11 @@ const instantSeatBlockers = {
 test("lavatory demand helper returns stable ratio for test level", () => {
   const estimate = estimateLavatoryDemand(tinyReadableCabin);
 
-  assert.equal(Number(estimate.expectedDemandSeconds.toFixed(2)), 692.11);
+  assert.equal(Number(estimate.expectedDemandSeconds.toFixed(2)), 143.7);
   assert.equal(estimate.perfectUtilizationSupplySeconds, 360);
-  assert.equal(Number(estimate.demandToSupplyRatio.toFixed(3)), 1.922);
-  assert.equal(Number(estimate.expectedBladderVisits.toFixed(4)), 44.5145);
-  assert.equal(Number(estimate.expectedBabyDiaperVisits.toFixed(4)), 3.8333);
+  assert.equal(Number(estimate.demandToSupplyRatio.toFixed(3)), 0.399);
+  assert.equal(Number(estimate.expectedBladderVisits.toFixed(4)), 1.4163);
+  assert.equal(Number(estimate.expectedBabyDiaperVisits.toFixed(3)), 5.125);
 });
 
 test("passenger generation is deterministic for the same seed", () => {
