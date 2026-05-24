@@ -9,7 +9,8 @@ const config = {
     { id: "front", row: 0 },
     { id: "rear", row: 9 }
   ],
-  baseFillPerSecond: 100 / 220,
+  initialFillRange: [0.0, 0.25],
+  baseFillPerSecond: 100 / 350,
   requestThreshold: 0.7,
   desperateThreshold: 0.9,
   minimumWalkSeconds: 2,
@@ -63,6 +64,12 @@ configElement.textContent = JSON.stringify(
     rows: config.rows,
     seatLayout: config.seatLayout,
     lavatories: config.lavatories,
+    bladder: {
+      initialFillRange: config.initialFillRange,
+      baseFillPerSecond: config.baseFillPerSecond,
+      requestThreshold: config.requestThreshold,
+      desperateThreshold: config.desperateThreshold
+    },
     lavatoryTiming: {
       minimumWalkSeconds: config.minimumWalkSeconds,
       walkSecondsPerRow: config.walkSecondsPerRow,
@@ -128,7 +135,7 @@ function createState() {
       const index = passengers.length;
       const archetype = archetypeList[index] ?? "normal";
       const definition = archetypes[archetype];
-      const fillPercent = range(rng, 0.05, 0.45);
+      const fillPercent = range(rng, config.initialFillRange[0], config.initialFillRange[1]);
       passengers.push({
         id: `P${String(index + 1).padStart(3, "0")}`,
         row,
@@ -227,15 +234,6 @@ function tick(dt) {
       passenger.state = "NeedsToGo";
       log(`${passenger.id} at ${passenger.row}${passenger.seat} needs to go.`);
     }
-
-    function startBeverageCart() {
-      const cart = state.beverageCart;
-      if (!cart || cart.state !== "ready") {
-        return;
-      }
-      log(`${cart.id} beverage cart started service at row ${cart.currentAisleRow}.`);
-      startBeverageRowService(cart);
-    }
     if (passenger.state !== "Panic" && percent >= 1) {
       abandonLavatoryAssignment(passenger);
       passenger.state = "Panic";
@@ -247,6 +245,15 @@ function tick(dt) {
     state.status = "won";
     log("Landed.");
   }
+}
+
+function startBeverageCart() {
+  const cart = state.beverageCart;
+  if (!cart || cart.state !== "ready") {
+    return;
+  }
+  log(`${cart.id} beverage cart started service at row ${cart.currentAisleRow}.`);
+  startBeverageRowService(cart);
 }
 
 function assign(passengerId, lavatoryId) {
