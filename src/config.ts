@@ -19,8 +19,8 @@ export const tinyReadableCabin: LevelConfig = {
     bigBladder: 4
   },
   bladder: {
-    initialFillRange: [0.05, 0.45],
-    baseFillPerSecond: 100 / 220,
+    initialFillRange: [0.0, 0.25],
+    baseFillPerSecond: 100 / 350,
     requestThreshold: 0.7,
     desperateThreshold: 0.9
   },
