@@ -8,6 +8,7 @@ import {
   createInitialState,
   runSimulation,
   startBeverageCart,
+  startTurbulence,
   tick
 } from "../src/simulation";
 import type { LevelConfig } from "../src/types";
@@ -728,6 +729,88 @@ test("active beverage cart occupies aisle cells and slows passenger movement", (
 
   assert.equal(state.aisleCells.find((cell) => cell.row === 1)?.beverageCartId, "beverage-cart");
   assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 4);
+});
+
+test("turbulence warning can turn on seat belt sign and force aisle passengers to return", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 3,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 3 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 5,
+      passingSlowdownMultiplier: 1,
+      useDurationSeconds: [5, 5]
+    },
+    seatBlockers: instantSeatBlockers,
+    turbulence: {
+      warningSeconds: 1,
+      durationSeconds: [2, 2],
+      seatBeltSignChance: 1
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P003", "front");
+  tick(state, 5);
+  assert.equal(state.passengers[2]?.aisleRow, 2);
+
+  startTurbulence(state);
+  assert.equal(state.turbulence?.phase, "warning");
+
+  tick(state, 1);
+  assert.equal(state.turbulence?.phase, "active");
+  assert.equal(state.passengers[2]?.state, "ReturningToSeat");
+  assert.equal(state.passengers[2]?.assignedLavatoryId, undefined);
+  assert.equal(state.events.at(-1)?.type, "forcedReturn");
+  assert.throws(
+    () => assignPassengerToLavatory(state, "P001", "front"),
+    /seat belt sign is on/
+  );
+
+  tick(state, 2);
+  assert.equal(state.turbulence?.phase, "idle");
+  assignPassengerToLavatory(state, "P001", "front");
+  assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
+});
+
+test("turbulence warning can pass without turning on the seat belt sign", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 10,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 1 },
+    turbulence: {
+      warningSeconds: 1,
+      durationSeconds: [2, 2],
+      seatBeltSignChance: 0
+    }
+  };
+  const state = createInitialState(config);
+
+  startTurbulence(state);
+  tick(state, 1);
+
+  assert.equal(state.turbulence?.phase, "idle");
+  assert.equal(state.events.at(-1)?.type, "seatBeltSignSkipped");
+  assignPassengerToLavatory(state, "P001", "front");
+  assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
 });
 
 test("CLI rejects malformed lavatory assignments", () => {

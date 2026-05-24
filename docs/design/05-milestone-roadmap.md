@@ -96,6 +96,13 @@ Implemented features:
 Add warning phase, possible seat belt sign, forced returns, movement lockout, and
 debug triggers.
 
+Implemented features:
+
+- configurable warning duration, seat belt sign chance, active duration, and optional auto-start timing
+- forced returns for passengers standing, walking, or queued when the sign turns on
+- movement lockout while the seat belt sign is active
+- browser debugger trigger and status visualization
+
 ## Milestone 7: Baby diaper events
 
 Add baby-attached adult events with long lavatory usage and indicators.

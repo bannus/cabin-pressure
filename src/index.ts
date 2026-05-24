@@ -4,6 +4,7 @@ export {
   createInitialState,
   runSimulation,
   startBeverageCart,
+  startTurbulence,
   summarize,
   tick
 } from "./simulation";
@@ -27,5 +28,8 @@ export type {
   SimulationEvent,
   SimulationState,
   SimulationStatus,
-  SimulationSummary
+  SimulationSummary,
+  Turbulence,
+  TurbulenceConfig,
+  TurbulencePhase
 } from "./types";

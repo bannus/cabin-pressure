@@ -30,6 +30,12 @@ const config = {
     bladderRateDelaySeconds: 20,
     bladderRateDurationSeconds: 45,
     autoStart: false
+  },
+  turbulence: {
+    warningSeconds: 5,
+    durationSeconds: [10, 16],
+    seatBeltSignChance: 1,
+    autoStartSeconds: 90
   }
 };
 
@@ -51,6 +57,7 @@ const selectedElement = document.querySelector("#selectedPassenger");
 const assignmentElement = document.querySelector("#assignmentButtons");
 const lavatoriesElement = document.querySelector("#lavatories");
 const beverageCartElement = document.querySelector("#beverageCart");
+const turbulenceElement = document.querySelector("#turbulence");
 const configElement = document.querySelector("#config");
 const eventLogElement = document.querySelector("#eventLog");
 const playPauseElement = document.querySelector("#playPause");
@@ -77,7 +84,8 @@ configElement.textContent = JSON.stringify(
       useDurationSeconds: config.useDurationSeconds
     },
     seatBlockers: config.seatBlockers,
-    beverageCart: config.beverageCart
+    beverageCart: config.beverageCart,
+    turbulence: config.turbulence
   },
   null,
   2
@@ -96,6 +104,10 @@ document.querySelector("#step").addEventListener("click", () => {
 });
 document.querySelector("#startCart").addEventListener("click", () => {
   startBeverageCart();
+  render();
+});
+document.querySelector("#startTurbulence").addEventListener("click", () => {
+  startTurbulence();
   render();
 });
 document.querySelector("#reset").addEventListener("click", () => {
@@ -179,6 +191,13 @@ function createState() {
       movementStepSecondsRemaining: 0,
       passengerIdsServed: []
     },
+    turbulence: {
+      phase: "idle",
+      warningSecondsRemaining: 0,
+      activeSecondsRemaining: 0,
+      hasAutoStarted: false,
+      willTurnSeatBeltSignOn: undefined
+    },
     events: []
   };
 }
@@ -186,6 +205,7 @@ function createState() {
 function tick(dt) {
   state.time = Math.min(config.durationSeconds, state.time + dt);
 
+  updateTurbulence(dt);
   updateBeverageCart(dt);
   updateSeatBlockers(dt);
 
@@ -257,6 +277,10 @@ function startBeverageCart() {
 }
 
 function assign(passengerId, lavatoryId) {
+  if (isSeatBeltSignOn()) {
+    log("Cannot assign passengers while the seat belt sign is on.");
+    return;
+  }
   const passenger = findPassenger(passengerId);
   if (passenger.state === "UsingLavatory" || passenger.state === "ReturningToSeat" || passenger.state === "Sitting") {
     return;
@@ -325,6 +349,19 @@ function updateSeatBlockers(dt) {
 }
 
 function startSeatExit(passenger, lavatoryRow, logBlocked = true) {
+  if (isSeatBeltSignOn()) {
+    passenger.assignedLavatoryId = undefined;
+    passenger.state = bladderPercent(passenger) >= config.requestThreshold ? "NeedsToGo" : "Seated";
+    passenger.aisleRow = undefined;
+    passenger.destinationAisleRow = undefined;
+    passenger.queuePosition = undefined;
+    passenger.movementSecondsRemaining = 0;
+    passenger.movementStepSecondsRemaining = 0;
+    passenger.standSecondsRemaining = 0;
+    refreshAisleCells();
+    return;
+  }
+
   releaseSeatBlockers(passenger.id);
   const blockers = seatExitBlockers(passenger);
   const unavailableBlockers = blockers.filter((blocker) => !canStandAsBlocker(blocker));
@@ -531,6 +568,7 @@ function render() {
   renderSelected();
   renderLavatories();
   renderBeverageCart();
+  renderTurbulence();
   renderLog();
 }
 
@@ -589,6 +627,16 @@ function renderBeverageCart() {
     : "Not configured";
 }
 
+function renderTurbulence() {
+  const turbulence = state.turbulence;
+  turbulenceElement.textContent = turbulence
+    ? `${turbulence.phase} · warning ${turbulence.warningSecondsRemaining.toFixed(1)}s · ` +
+      `active ${turbulence.activeSecondsRemaining.toFixed(1)}s · sign ${
+        turbulence.phase === "active" ? "on" : "off"
+      }`
+    : "Not configured";
+}
+
 function renderLavatories() {
   lavatoriesElement.innerHTML = "";
   for (const lavatory of state.lavatories) {
@@ -628,6 +676,117 @@ function bladderColor(percent) {
   if (percent >= config.desperateThreshold) return "#f97316";
   if (percent >= config.requestThreshold) return "#facc15";
   return "#22c55e";
+}
+
+function startTurbulence() {
+  const turbulence = state.turbulence;
+  if (!turbulence || turbulence.phase !== "idle") {
+    return;
+  }
+
+  turbulence.hasAutoStarted = true;
+  turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn();
+  turbulence.warningSecondsRemaining = config.turbulence.warningSeconds;
+  turbulence.activeSecondsRemaining = 0;
+
+  if (turbulence.warningSecondsRemaining > 0) {
+    turbulence.phase = "warning";
+    log(`Turbulence warning: seat belt sign possible in ${turbulence.warningSecondsRemaining}s.`);
+  } else {
+    finishTurbulenceWarning(turbulence);
+  }
+}
+
+function updateTurbulence(dt) {
+  const turbulence = state.turbulence;
+  if (!turbulence) return;
+
+  if (
+    turbulence.phase === "idle" &&
+    config.turbulence.autoStartSeconds !== undefined &&
+    !turbulence.hasAutoStarted &&
+    state.time >= config.turbulence.autoStartSeconds
+  ) {
+    startTurbulence();
+  }
+
+  if (turbulence.phase === "warning") {
+    turbulence.warningSecondsRemaining = Math.max(0, turbulence.warningSecondsRemaining - dt);
+    if (turbulence.warningSecondsRemaining === 0) {
+      finishTurbulenceWarning(turbulence);
+    }
+    return;
+  }
+
+  if (turbulence.phase === "active") {
+    turbulence.activeSecondsRemaining = Math.max(0, turbulence.activeSecondsRemaining - dt);
+    if (turbulence.activeSecondsRemaining === 0) {
+      turbulence.phase = "idle";
+      turbulence.willTurnSeatBeltSignOn = undefined;
+      log("Seat belt sign turned off.");
+    }
+  }
+}
+
+function finishTurbulenceWarning(turbulence) {
+  if (!turbulence.willTurnSeatBeltSignOn) {
+    turbulence.phase = "idle";
+    turbulence.warningSecondsRemaining = 0;
+    turbulence.activeSecondsRemaining = 0;
+    turbulence.willTurnSeatBeltSignOn = undefined;
+    log("Turbulence passed without the seat belt sign.");
+    return;
+  }
+
+  turbulence.phase = "active";
+  turbulence.warningSecondsRemaining = 0;
+  turbulence.activeSecondsRemaining = turbulenceDurationSeconds();
+  log(`Seat belt sign turned on for ${turbulence.activeSecondsRemaining.toFixed(1)}s.`);
+  forceAislePassengersToReturn();
+}
+
+function forceAislePassengersToReturn() {
+  for (const passenger of state.passengers) {
+    if (["UsingLavatory", "ReturningToSeat"].includes(passenger.state)) {
+      continue;
+    }
+    if (
+      ["WalkingToLavatory", "QueuedForLavatory", "Standing", "WaitingForSeatBlockers"].includes(
+        passenger.state
+      )
+    ) {
+      const returnStartRow = passenger.aisleRow;
+      abandonLavatoryAssignment(passenger);
+      if (returnStartRow !== undefined && returnStartRow !== passenger.row) {
+        passenger.state = "ReturningToSeat";
+        startAisleMovement(passenger, passenger.row, returnStartRow);
+      } else if (returnStartRow !== undefined) {
+        passenger.aisleRow = returnStartRow;
+        startSitting(passenger);
+      } else {
+        passenger.state = bladderPercent(passenger) >= config.requestThreshold ? "NeedsToGo" : "Seated";
+      }
+      log(`${passenger.id} returned because the seat belt sign is on.`);
+    }
+  }
+  refreshAisleCells();
+}
+
+function isSeatBeltSignOn() {
+  return state.turbulence?.phase === "active";
+}
+
+function shouldTurnSeatBeltSignOn() {
+  const chance = config.turbulence.seatBeltSignChance;
+  if (chance <= 0) return false;
+  if (chance >= 1) return true;
+  return hash(`${config.seed}:turbulence:${state.time}:sign`) / 4294967296 < chance;
+}
+
+function turbulenceDurationSeconds() {
+  const [min, max] = config.turbulence.durationSeconds;
+  if (min === max) return min;
+  return min + (max - min) * (hash(`${config.seed}:turbulence:${state.time}:duration`) / 4294967296);
 }
 
 function updateBeverageCart(dt) {

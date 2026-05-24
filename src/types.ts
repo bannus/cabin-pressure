@@ -60,6 +60,7 @@ export interface LevelConfig {
   lavatory: LavatorySystemConfig;
   seatBlockers: SeatBlockerConfig;
   beverageCart?: BeverageCartConfig;
+  turbulence?: TurbulenceConfig;
   loss: LossConfig;
 }
 
@@ -93,6 +94,14 @@ export interface BeverageCartConfig {
 }
 
 export type BeverageCartState = "ready" | "moving" | "servicing" | "complete";
+export type TurbulencePhase = "idle" | "warning" | "active";
+
+export interface TurbulenceConfig {
+  warningSeconds: number;
+  durationSeconds: [number, number];
+  seatBeltSignChance: number;
+  autoStartSeconds?: number;
+}
 
 export interface BeverageCart {
   id: string;
@@ -103,6 +112,14 @@ export interface BeverageCart {
   serviceSecondsRemaining: number;
   movementStepSecondsRemaining: number;
   passengerIdsServed: string[];
+}
+
+export interface Turbulence {
+  phase: TurbulencePhase;
+  warningSecondsRemaining: number;
+  activeSecondsRemaining: number;
+  hasAutoStarted: boolean;
+  willTurnSeatBeltSignOn?: boolean;
 }
 
 export interface Passenger {
@@ -153,6 +170,11 @@ export interface SimulationEvent {
     | "beverageCartServiced"
     | "beverageCartDeparted"
     | "beverageCartComplete"
+    | "turbulenceWarning"
+    | "seatBeltSignOn"
+    | "seatBeltSignOff"
+    | "seatBeltSignSkipped"
+    | "forcedReturn"
     | "win"
     | "loss";
   passengerId?: string;
@@ -176,6 +198,7 @@ export interface SimulationState {
   aisleCells: AisleCell[];
   lavatories: Lavatory[];
   beverageCart?: BeverageCart;
+  turbulence?: Turbulence;
   events: SimulationEvent[];
 }
 
@@ -189,6 +212,7 @@ export interface SimulationSummary {
   aisleCells: AisleCell[];
   lavatories: LavatorySummary[];
   beverageCart?: BeverageCart;
+  turbulence?: Turbulence;
   mostUrgent: PassengerUrgency[];
 }
 
