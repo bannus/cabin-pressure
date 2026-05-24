@@ -15,7 +15,12 @@ const config = {
   minimumWalkSeconds: 2,
   walkSecondsPerRow: 0.75,
   passingSlowdownMultiplier: 2,
-  useDurationSeconds: [8, 14]
+  useDurationSeconds: [8, 14],
+  seatBlockers: {
+    standSeconds: 1,
+    sitSeconds: 1,
+    standCooldownSeconds: 3
+  }
 };
 
 const archetypes = {
@@ -53,7 +58,8 @@ configElement.textContent = JSON.stringify(
       walkSecondsPerRow: config.walkSecondsPerRow,
       passingSlowdownMultiplier: config.passingSlowdownMultiplier,
       useDurationSeconds: config.useDurationSeconds
-    }
+    },
+    seatBlockers: config.seatBlockers
   },
   null,
   2
@@ -124,7 +130,11 @@ function createState() {
         movementSecondsRemaining: 0,
         lavatorySecondsRemaining: 0,
         visits: 0,
-        queuePosition: undefined
+        queuePosition: undefined,
+        standSecondsRemaining: 0,
+        sitSecondsRemaining: 0,
+        standCooldownSecondsRemaining: 0,
+        blockingPassengerId: undefined
       });
     }
   }
@@ -140,6 +150,8 @@ function createState() {
 
 function tick(dt) {
   state.time = Math.min(config.durationSeconds, state.time + dt);
+
+  updateSeatBlockers(dt);
 
   for (const passenger of state.passengers) {
     if (passenger.state === "ReturningToSeat") {
@@ -185,7 +197,8 @@ function tick(dt) {
       passenger.state = "NeedsToGo";
       log(`${passenger.id} at ${passenger.row}${passenger.seat} needs to go.`);
     }
-    if ((passenger.state === "Seated" || passenger.state === "NeedsToGo") && percent >= 1) {
+    if (passenger.state !== "Panic" && percent >= 1) {
+      abandonLavatoryAssignment(passenger);
       passenger.state = "Panic";
       log(`${passenger.id} at ${passenger.row}${passenger.seat} is in panic.`);
     }
@@ -199,9 +212,10 @@ function tick(dt) {
 
 function assign(passengerId, lavatoryId) {
   const passenger = findPassenger(passengerId);
-  if (passenger.state === "UsingLavatory" || passenger.state === "ReturningToSeat") {
+  if (passenger.state === "UsingLavatory" || passenger.state === "ReturningToSeat" || passenger.state === "Sitting") {
     return;
   }
+  stopBlockingForAssignment(passenger);
   const lavatory = findLavatory(lavatoryId);
   for (const candidate of state.lavatories) {
     const previousLength = candidate.queue.length;
@@ -212,14 +226,217 @@ function assign(passengerId, lavatoryId) {
   }
   const oldLavatoryId = passenger.assignedLavatoryId;
   passenger.assignedLavatoryId = lavatoryId;
-  passenger.state = "WalkingToLavatory";
-  startAisleMovement(passenger, lavatory.row, passenger.aisleRow ?? passenger.row);
+  startSeatExit(passenger, lavatory.row);
   log(
     oldLavatoryId && oldLavatoryId !== lavatoryId
       ? `${passenger.id} rerouted from ${oldLavatoryId} to ${lavatoryId}.`
       : `${passenger.id} assigned to ${lavatoryId} lavatory.`
   );
   render();
+}
+
+function updateSeatBlockers(dt) {
+  for (const passenger of state.passengers) {
+    passenger.standCooldownSecondsRemaining = Math.max(0, passenger.standCooldownSecondsRemaining - dt);
+    if (passenger.state === "Standing") {
+      passenger.standSecondsRemaining = Math.max(0, passenger.standSecondsRemaining - dt);
+    }
+    if (passenger.state === "Sitting") {
+      passenger.sitSecondsRemaining = Math.max(0, passenger.sitSecondsRemaining - dt);
+      if (passenger.sitSecondsRemaining === 0) {
+        finishSitting(passenger);
+      }
+    }
+  }
+
+  for (const passenger of state.passengers) {
+    if (passenger.state === "WaitingForSeatBlockers") {
+      startSeatExit(passenger, findLavatory(passenger.assignedLavatoryId).row, false);
+    }
+    if (
+      passenger.state === "Standing" &&
+      !passenger.blockingPassengerId &&
+      passenger.assignedLavatoryId &&
+      passenger.standSecondsRemaining === 0 &&
+      seatExitBlockers(passenger).every((blocker) => blocker.blockingPassengerId === passenger.id && blocker.standSecondsRemaining === 0)
+    ) {
+      passenger.state = "WalkingToLavatory";
+      startAisleMovement(passenger, findLavatory(passenger.assignedLavatoryId).row, passenger.row);
+    }
+  }
+
+  for (const blocker of state.passengers) {
+    if (blocker.state !== "Standing" || !blocker.blockingPassengerId || blocker.standSecondsRemaining > 0) {
+      continue;
+    }
+    const blockedPassenger = findPassenger(blocker.blockingPassengerId);
+    if (!blockedPassenger || blockedPassenger.state === "Panic" || blockedPassenger.aisleRow !== blocker.row || blockedPassenger.destinationAisleRow === undefined) {
+      startSitting(blocker);
+    }
+  }
+
+  refreshAisleCells();
+}
+
+function startSeatExit(passenger, lavatoryRow, logBlocked = true) {
+  releaseSeatBlockers(passenger.id);
+  const blockers = seatExitBlockers(passenger);
+  const unavailableBlockers = blockers.filter((blocker) => !canStandAsBlocker(blocker));
+  if (unavailableBlockers.length > 0) {
+    passenger.state = "WaitingForSeatBlockers";
+    passenger.aisleRow = undefined;
+    passenger.destinationAisleRow = lavatoryRow;
+    passenger.movementSecondsRemaining = 0;
+    passenger.movementStepSecondsRemaining = 0;
+    passenger.standSecondsRemaining = 0;
+    if (logBlocked) {
+      log(`${passenger.id} is waiting for ${unavailableBlockers.map((blocker) => blocker.id).join(", ")} to stand.`);
+    }
+    refreshAisleCells();
+    return;
+  }
+
+  for (const blocker of blockers) {
+    blocker.state = "Standing";
+    blocker.blockingPassengerId = passenger.id;
+    blocker.aisleRow = blocker.row;
+    blocker.destinationAisleRow = undefined;
+    blocker.queuePosition = undefined;
+    blocker.movementSecondsRemaining = 0;
+    blocker.movementStepSecondsRemaining = 0;
+    blocker.standSecondsRemaining = config.seatBlockers.standSeconds;
+    blocker.sitSecondsRemaining = 0;
+    log(`${blocker.id} stood to let ${passenger.id} out.`);
+  }
+
+  passenger.state = "Standing";
+  passenger.aisleRow = passenger.row;
+  passenger.destinationAisleRow = lavatoryRow;
+  passenger.queuePosition = undefined;
+  passenger.movementSecondsRemaining = 0;
+  passenger.movementStepSecondsRemaining = 0;
+  passenger.standSecondsRemaining = config.seatBlockers.standSeconds;
+  passenger.sitSecondsRemaining = 0;
+  refreshAisleCells();
+
+  if (passenger.standSecondsRemaining === 0 && blockers.every((blocker) => blocker.standSecondsRemaining === 0)) {
+    passenger.state = "WalkingToLavatory";
+    startAisleMovement(passenger, lavatoryRow, passenger.row);
+  }
+}
+
+function startSitting(passenger) {
+  passenger.state = "Sitting";
+  passenger.aisleRow = passenger.row;
+  passenger.destinationAisleRow = undefined;
+  passenger.queuePosition = undefined;
+  passenger.movementSecondsRemaining = 0;
+  passenger.movementStepSecondsRemaining = 0;
+  passenger.standSecondsRemaining = 0;
+  passenger.sitSecondsRemaining = config.seatBlockers.sitSeconds;
+  if (passenger.sitSecondsRemaining === 0) {
+    finishSitting(passenger);
+  }
+}
+
+function finishSitting(passenger) {
+  const wasBlocker = Boolean(passenger.blockingPassengerId);
+  const blockedPassengerId = passenger.blockingPassengerId;
+  passenger.blockingPassengerId = undefined;
+  passenger.aisleRow = undefined;
+  passenger.destinationAisleRow = undefined;
+  passenger.sitSecondsRemaining = 0;
+  passenger.standCooldownSecondsRemaining = config.seatBlockers.standCooldownSeconds;
+  passenger.state = bladderPercent(passenger) >= config.requestThreshold ? "NeedsToGo" : "Seated";
+  if (wasBlocker) {
+    log(`${passenger.id} sat after letting ${blockedPassengerId} out.`);
+  }
+}
+
+function seatExitBlockers(passenger) {
+  const seatIndex = config.seatLayout.indexOf(passenger.seat);
+  const aisleSplit = Math.ceil(config.seatLayout.length / 2);
+  const blockingSeats =
+    seatIndex < aisleSplit
+      ? config.seatLayout.slice(seatIndex + 1, aisleSplit)
+      : config.seatLayout.slice(aisleSplit, seatIndex);
+  return state.passengers.filter(
+    (candidate) =>
+      candidate.row === passenger.row &&
+      blockingSeats.includes(candidate.seat) &&
+      isSeatBlockingOccupant(candidate, passenger.id)
+  );
+}
+
+function isSeatBlockingOccupant(passenger, blockedPassengerId) {
+  return (
+    passenger.blockingPassengerId === blockedPassengerId ||
+    ["Seated", "NeedsToGo", "Panic", "Sitting"].includes(passenger.state)
+  );
+}
+
+function canStandAsBlocker(passenger) {
+  return (
+    ["Seated", "NeedsToGo", "Panic"].includes(passenger.state) &&
+    passenger.standCooldownSecondsRemaining === 0 &&
+    !passenger.assignedLavatoryId
+  );
+}
+
+function releaseSeatBlockers(blockedPassengerId) {
+  for (const blocker of state.passengers) {
+    if (blocker.blockingPassengerId === blockedPassengerId) {
+      startSitting(blocker);
+    }
+  }
+}
+
+function abandonLavatoryAssignment(passenger) {
+  const blockedPassengerId = passenger.blockingPassengerId;
+  releaseSeatBlockers(passenger.id);
+  passenger.assignedLavatoryId = undefined;
+  passenger.aisleRow = undefined;
+  passenger.destinationAisleRow = undefined;
+  passenger.queuePosition = undefined;
+  passenger.blockingPassengerId = undefined;
+  passenger.movementStepSecondsRemaining = 0;
+  passenger.movementSecondsRemaining = 0;
+  passenger.standSecondsRemaining = 0;
+  passenger.sitSecondsRemaining = 0;
+  passenger.lavatorySecondsRemaining = 0;
+  removeFromLavatoryQueue(passenger.id);
+  if (blockedPassengerId) {
+    const blockedPassenger = state.passengers.find((candidate) => candidate.id === blockedPassengerId);
+    if (blockedPassenger && ["Standing", "WaitingForSeatBlockers"].includes(blockedPassenger.state)) {
+      blockedPassenger.state = "WaitingForSeatBlockers";
+      blockedPassenger.aisleRow = undefined;
+      blockedPassenger.standSecondsRemaining = 0;
+    }
+  }
+  refreshAisleCells();
+}
+
+function removeFromLavatoryQueue(passengerId) {
+  for (const lavatory of state.lavatories) {
+    const previousLength = lavatory.queue.length;
+    lavatory.queue = lavatory.queue.filter((queuedPassengerId) => queuedPassengerId !== passengerId);
+    if (lavatory.queue.length !== previousLength) {
+      updateQueuePositions(lavatory);
+    }
+  }
+}
+
+function stopBlockingForAssignment(passenger) {
+  if (!passenger.blockingPassengerId) {
+    return;
+  }
+  const blockedPassenger = findPassenger(passenger.blockingPassengerId);
+  passenger.blockingPassengerId = undefined;
+  if (blockedPassenger && ["Standing", "WaitingForSeatBlockers"].includes(blockedPassenger.state)) {
+    blockedPassenger.state = "WaitingForSeatBlockers";
+    blockedPassenger.aisleRow = undefined;
+    blockedPassenger.standSecondsRemaining = 0;
+  }
 }
 
 function arrive(passenger) {
@@ -304,7 +521,7 @@ function lavatoryMarker(id) {
 
 function renderSelected() {
   const passenger = findPassenger(selectedPassengerId);
-  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}`;
+  selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}<br>blocking: ${passenger.blockingPassengerId ?? "-"} · cooldown: ${passenger.standCooldownSecondsRemaining.toFixed(1)}s`;
   assignmentElement.innerHTML = "";
   for (const lavatory of state.lavatories) {
     const button = document.createElement("button");
@@ -420,8 +637,7 @@ function completeAisleMovement(passenger) {
 
   if (passenger.state === "ReturningToSeat") {
     passenger.assignedLavatoryId = undefined;
-    passenger.aisleRow = undefined;
-    passenger.state = bladderPercent(passenger) >= config.requestThreshold ? "NeedsToGo" : "Seated";
+    startSitting(passenger);
     log(`${passenger.id} returned to ${passenger.row}${passenger.seat}.`);
   }
 }
@@ -445,7 +661,7 @@ function nextAisleRow(passenger) {
 }
 
 function isInAisle(passenger) {
-  return ["WalkingToLavatory", "QueuedForLavatory", "ReturningToSeat"].includes(passenger.state) && passenger.aisleRow !== undefined;
+  return ["Standing", "WalkingToLavatory", "QueuedForLavatory", "ReturningToSeat", "Sitting"].includes(passenger.state) && passenger.aisleRow !== undefined;
 }
 
 function refreshAisleCells() {

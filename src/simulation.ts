@@ -48,7 +48,10 @@ export function createInitialState(config: LevelConfig): SimulationState {
       movementStepSecondsRemaining: 0,
       movementSecondsRemaining: 0,
       lavatorySecondsRemaining: 0,
-      lavatoryVisitCount: 0
+      lavatoryVisitCount: 0,
+      standSecondsRemaining: 0,
+      sitSecondsRemaining: 0,
+      standCooldownSecondsRemaining: 0
     };
   });
 
@@ -122,19 +125,23 @@ export function assignPassengerToLavatory(
   const passenger = findPassenger(state, passengerId);
   const lavatory = findLavatory(state, lavatoryId);
 
-  if (passenger.state === "UsingLavatory" || passenger.state === "ReturningToSeat") {
+  if (
+    passenger.state === "UsingLavatory" ||
+    passenger.state === "ReturningToSeat" ||
+    passenger.state === "Sitting"
+  ) {
     throw new Error(`${passenger.id} cannot be reassigned while ${passenger.state}`);
   }
 
+  stopBlockingForAssignment(state, passenger);
   const previousLavatoryId = passenger.assignedLavatoryId;
   if (previousLavatoryId !== undefined) {
     removeFromLavatoryQueue(state, passenger.id);
   }
 
   passenger.assignedLavatoryId = lavatory.id;
-  passenger.state = "WalkingToLavatory";
-  startAisleMovement(state, passenger, lavatory.row, passenger.aisleRow ?? passenger.row);
   passenger.lavatorySecondsRemaining = 0;
+  startSeatExit(state, passenger, lavatory.row);
 
   if (previousLavatoryId !== undefined && previousLavatoryId !== lavatory.id) {
     addEvent(
@@ -197,6 +204,8 @@ export function bladderPercent(passenger: Passenger): number {
 }
 
 function updateLavatoryProgress(state: SimulationState, dt: number): void {
+  updateSeatBlockerProgress(state, dt);
+
   for (const passenger of state.passengers) {
     if (passenger.state === "ReturningToSeat") {
       advanceAisleMovement(state, passenger, dt);
@@ -225,6 +234,256 @@ function updateLavatoryProgress(state: SimulationState, dt: number): void {
   }
 
   refreshAisleCells(state);
+}
+
+function updateSeatBlockerProgress(state: SimulationState, dt: number): void {
+  for (const passenger of state.passengers) {
+    passenger.standCooldownSecondsRemaining = Math.max(
+      0,
+      passenger.standCooldownSecondsRemaining - dt
+    );
+
+    if (passenger.state === "Standing") {
+      passenger.standSecondsRemaining = Math.max(0, passenger.standSecondsRemaining - dt);
+    }
+
+    if (passenger.state === "Sitting") {
+      passenger.sitSecondsRemaining = Math.max(0, passenger.sitSecondsRemaining - dt);
+      if (passenger.sitSecondsRemaining === 0) {
+        finishSitting(state, passenger);
+      }
+    }
+  }
+
+  for (const passenger of state.passengers) {
+    if (passenger.state === "WaitingForSeatBlockers") {
+      startSeatExit(state, passenger, requireAssignedLavatoryRow(state, passenger), false);
+    }
+
+    if (
+      passenger.state === "Standing" &&
+      passenger.blockingPassengerId === undefined &&
+      passenger.assignedLavatoryId !== undefined &&
+      passenger.standSecondsRemaining === 0 &&
+      seatExitBlockers(state, passenger).every(
+        (blocker) =>
+          blocker.blockingPassengerId === passenger.id && blocker.standSecondsRemaining === 0
+      )
+    ) {
+      passenger.state = "WalkingToLavatory";
+      startAisleMovement(state, passenger, requireAssignedLavatoryRow(state, passenger), passenger.row);
+    }
+  }
+
+  for (const blocker of state.passengers) {
+    if (
+      blocker.state !== "Standing" ||
+      blocker.blockingPassengerId === undefined ||
+      blocker.standSecondsRemaining > 0
+    ) {
+      continue;
+    }
+
+    const blockedPassenger = state.passengers.find(
+      (passenger) => passenger.id === blocker.blockingPassengerId
+    );
+    if (
+      blockedPassenger === undefined ||
+      blockedPassenger.state === "Panic" ||
+      blockedPassenger.aisleRow !== blocker.row ||
+      blockedPassenger.destinationAisleRow === undefined
+    ) {
+      startSitting(state, blocker);
+    }
+  }
+
+  refreshAisleCells(state);
+}
+
+function startSeatExit(
+  state: SimulationState,
+  passenger: Passenger,
+  lavatoryRow: number,
+  logBlocked = true
+): void {
+  releaseSeatBlockers(state, passenger.id);
+
+  const blockers = seatExitBlockers(state, passenger);
+  const unavailableBlockers = blockers.filter((blocker) => !canStandAsBlocker(blocker));
+  if (unavailableBlockers.length > 0) {
+    passenger.state = "WaitingForSeatBlockers";
+    passenger.aisleRow = undefined;
+    passenger.destinationAisleRow = lavatoryRow;
+    passenger.movementSecondsRemaining = 0;
+    passenger.movementStepSecondsRemaining = 0;
+    passenger.standSecondsRemaining = 0;
+    if (logBlocked) {
+      addEvent(
+        state,
+        "seatBlocked",
+        `${passenger.id} is waiting for ${unavailableBlockers
+          .map((blocker) => blocker.id)
+          .join(", ")} to stand.`,
+        passenger.id
+      );
+    }
+    refreshAisleCells(state);
+    return;
+  }
+
+  for (const blocker of blockers) {
+    blocker.state = "Standing";
+    blocker.blockingPassengerId = passenger.id;
+    blocker.aisleRow = blocker.row;
+    blocker.destinationAisleRow = undefined;
+    blocker.queuePosition = undefined;
+    blocker.movementSecondsRemaining = 0;
+    blocker.movementStepSecondsRemaining = 0;
+    blocker.standSecondsRemaining = state.config.seatBlockers.standSeconds;
+    blocker.sitSecondsRemaining = 0;
+    addEvent(
+      state,
+      "seatBlockerStood",
+      `${blocker.id} stood to let ${passenger.id} out.`,
+      blocker.id
+    );
+  }
+
+  passenger.state = "Standing";
+  passenger.aisleRow = passenger.row;
+  passenger.destinationAisleRow = lavatoryRow;
+  passenger.queuePosition = undefined;
+  passenger.movementSecondsRemaining = 0;
+  passenger.movementStepSecondsRemaining = 0;
+  passenger.standSecondsRemaining = state.config.seatBlockers.standSeconds;
+  passenger.sitSecondsRemaining = 0;
+  refreshAisleCells(state);
+
+  if (
+    passenger.standSecondsRemaining === 0 &&
+    blockers.every((blocker) => blocker.standSecondsRemaining === 0)
+  ) {
+    passenger.state = "WalkingToLavatory";
+    startAisleMovement(state, passenger, lavatoryRow, passenger.row);
+  }
+}
+
+function startSitting(state: SimulationState, passenger: Passenger): void {
+  passenger.state = "Sitting";
+  passenger.aisleRow = passenger.row;
+  passenger.destinationAisleRow = undefined;
+  passenger.queuePosition = undefined;
+  passenger.movementSecondsRemaining = 0;
+  passenger.movementStepSecondsRemaining = 0;
+  passenger.standSecondsRemaining = 0;
+  passenger.sitSecondsRemaining = state.config.seatBlockers.sitSeconds;
+
+  if (passenger.sitSecondsRemaining === 0) {
+    finishSitting(state, passenger);
+  }
+}
+
+function finishSitting(state: SimulationState, passenger: Passenger): void {
+  const wasBlocker = passenger.blockingPassengerId !== undefined;
+  const blockedPassengerId = passenger.blockingPassengerId;
+  passenger.blockingPassengerId = undefined;
+  passenger.aisleRow = undefined;
+  passenger.destinationAisleRow = undefined;
+  passenger.sitSecondsRemaining = 0;
+  passenger.standCooldownSecondsRemaining = state.config.seatBlockers.standCooldownSeconds;
+  passenger.state =
+    bladderPercent(passenger) >= state.config.bladder.requestThreshold ? "NeedsToGo" : "Seated";
+
+  if (wasBlocker) {
+    addEvent(
+      state,
+      "seatBlockerSat",
+      `${passenger.id} sat after letting ${blockedPassengerId} out.`,
+      passenger.id
+    );
+  }
+}
+
+function seatExitBlockers(state: SimulationState, passenger: Passenger): Passenger[] {
+  const seatIndex = state.config.aircraft.seatLayout.indexOf(passenger.seat);
+  if (seatIndex === -1) {
+    return [];
+  }
+
+  const aisleSplit = Math.ceil(state.config.aircraft.seatLayout.length / 2);
+  const blockingSeatIndexes =
+    seatIndex < aisleSplit
+      ? rangeIndexes(seatIndex + 1, aisleSplit)
+      : rangeIndexes(aisleSplit, seatIndex);
+  const blockingSeats = blockingSeatIndexes.map((index) => state.config.aircraft.seatLayout[index]);
+
+  return state.passengers.filter(
+    (candidate) =>
+      candidate.row === passenger.row &&
+      blockingSeats.includes(candidate.seat) &&
+      isSeatBlockingOccupant(candidate, passenger.id)
+  );
+}
+
+function rangeIndexes(startInclusive: number, endExclusive: number): number[] {
+  const indexes: number[] = [];
+  for (let index = startInclusive; index < endExclusive; index += 1) {
+    indexes.push(index);
+  }
+  return indexes;
+}
+
+function isSeatBlockingOccupant(passenger: Passenger, blockedPassengerId: string): boolean {
+  if (passenger.blockingPassengerId === blockedPassengerId) {
+    return true;
+  }
+  return (
+    passenger.state === "Seated" ||
+    passenger.state === "NeedsToGo" ||
+    passenger.state === "Panic" ||
+    passenger.state === "Sitting"
+  );
+}
+
+function canStandAsBlocker(passenger: Passenger): boolean {
+  return (
+    (passenger.state === "Seated" ||
+      passenger.state === "NeedsToGo" ||
+      passenger.state === "Panic") &&
+    passenger.standCooldownSecondsRemaining === 0 &&
+    passenger.assignedLavatoryId === undefined
+  );
+}
+
+function releaseSeatBlockers(state: SimulationState, blockedPassengerId: string): void {
+  for (const blocker of state.passengers) {
+    if (blocker.blockingPassengerId === blockedPassengerId) {
+      startSitting(state, blocker);
+    }
+  }
+}
+
+function stopBlockingForAssignment(state: SimulationState, passenger: Passenger): void {
+  const blockedPassengerId = passenger.blockingPassengerId;
+  if (blockedPassengerId === undefined) {
+    return;
+  }
+
+  passenger.blockingPassengerId = undefined;
+  const blockedPassenger = state.passengers.find((candidate) => candidate.id === blockedPassengerId);
+  if (
+    blockedPassenger !== undefined &&
+    (blockedPassenger.state === "Standing" ||
+      blockedPassenger.state === "WaitingForSeatBlockers")
+  ) {
+    blockedPassenger.state = "WaitingForSeatBlockers";
+    blockedPassenger.aisleRow = undefined;
+    blockedPassenger.standSecondsRemaining = 0;
+  }
+}
+
+function requireAssignedLavatoryRow(state: SimulationState, passenger: Passenger): number {
+  return findLavatory(state, requireAssignedLavatory(passenger)).row;
 }
 
 function arriveAtLavatory(state: SimulationState, passenger: Passenger): void {
@@ -374,8 +633,11 @@ function nextPassengerState(
   }
   if (
     passenger.state === "WalkingToLavatory" ||
+    passenger.state === "WaitingForSeatBlockers" ||
+    passenger.state === "Standing" ||
     passenger.state === "QueuedForLavatory" ||
-    passenger.state === "ReturningToSeat"
+    passenger.state === "ReturningToSeat" ||
+    passenger.state === "Sitting"
   ) {
     return passenger.state;
   }
@@ -464,9 +726,7 @@ function completeAisleMovement(state: SimulationState, passenger: Passenger): vo
 
   if (passenger.state === "ReturningToSeat") {
     passenger.assignedLavatoryId = undefined;
-    passenger.aisleRow = undefined;
-    passenger.state =
-      bladderPercent(passenger) >= state.config.bladder.requestThreshold ? "NeedsToGo" : "Seated";
+    startSitting(state, passenger);
     addEvent(
       state,
       "returned",
@@ -504,9 +764,11 @@ function nextAisleRow(passenger: Passenger): number {
 function isInAisle(passenger: Passenger): boolean {
   return (
     passenger.aisleRow !== undefined &&
-    (passenger.state === "WalkingToLavatory" ||
+    (passenger.state === "Standing" ||
+      passenger.state === "WalkingToLavatory" ||
       passenger.state === "QueuedForLavatory" ||
-      passenger.state === "ReturningToSeat")
+      passenger.state === "ReturningToSeat" ||
+      passenger.state === "Sitting")
   );
 }
 
@@ -622,6 +884,13 @@ function validateConfig(config: LevelConfig): void {
   ) {
     throw new Error("lavatory.passingSlowdownMultiplier must be at least 1");
   }
+  if (
+    config.seatBlockers.standSeconds < 0 ||
+    config.seatBlockers.sitSeconds < 0 ||
+    config.seatBlockers.standCooldownSeconds < 0
+  ) {
+    throw new Error("seat blocker timings must be non-negative");
+  }
   if (config.loss.maxStrikes < 1) {
     throw new Error("loss.maxStrikes must be at least 1");
   }
@@ -638,7 +907,9 @@ function toUrgency(passenger: Passenger): PassengerUrgency {
     strikeCount: passenger.strikeCount,
     assignedLavatoryId: passenger.assignedLavatoryId,
     aisleRow: passenger.aisleRow,
-    queuePosition: passenger.queuePosition
+    queuePosition: passenger.queuePosition,
+    blockingPassengerId: passenger.blockingPassengerId,
+    standCooldownSecondsRemaining: passenger.standCooldownSecondsRemaining
   };
 }
 
@@ -695,14 +966,31 @@ function removeFromLavatoryQueue(state: SimulationState, passengerId: string): v
 }
 
 function abandonLavatoryAssignment(state: SimulationState, passenger: Passenger): void {
+  const blockedPassengerId = passenger.blockingPassengerId;
+  releaseSeatBlockers(state, passenger.id);
   passenger.assignedLavatoryId = undefined;
   passenger.aisleRow = undefined;
   passenger.destinationAisleRow = undefined;
   passenger.queuePosition = undefined;
+  passenger.blockingPassengerId = undefined;
   passenger.movementStepSecondsRemaining = 0;
   passenger.movementSecondsRemaining = 0;
+  passenger.standSecondsRemaining = 0;
+  passenger.sitSecondsRemaining = 0;
   passenger.lavatorySecondsRemaining = 0;
   removeFromLavatoryQueue(state, passenger.id);
+  if (blockedPassengerId !== undefined) {
+    const blockedPassenger = state.passengers.find((candidate) => candidate.id === blockedPassengerId);
+    if (
+      blockedPassenger !== undefined &&
+      (blockedPassenger.state === "Standing" ||
+        blockedPassenger.state === "WaitingForSeatBlockers")
+    ) {
+      blockedPassenger.state = "WaitingForSeatBlockers";
+      blockedPassenger.aisleRow = undefined;
+      blockedPassenger.standSecondsRemaining = 0;
+    }
+  }
   refreshAisleCells(state);
 }
 

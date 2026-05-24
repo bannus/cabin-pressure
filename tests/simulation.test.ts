@@ -6,6 +6,12 @@ import { tinyReadableCabin } from "../src/config";
 import { assignPassengerToLavatory, createInitialState, runSimulation, tick } from "../src/simulation";
 import type { LevelConfig } from "../src/types";
 
+const instantSeatBlockers = {
+  standSeconds: 0,
+  sitSeconds: 0,
+  standCooldownSeconds: 0
+};
+
 test("passenger generation is deterministic for the same seed", () => {
   const first = createInitialState(tinyReadableCabin);
   const second = createInitialState(tinyReadableCabin);
@@ -137,7 +143,8 @@ test("assigned passenger walks to lavatory, uses it, and returns to seat", () =>
       minimumWalkSeconds: 1,
       walkSecondsPerRow: 0,
       useDurationSeconds: [2, 2]
-    }
+    },
+    seatBlockers: instantSeatBlockers
   };
   const state = createInitialState(config);
 
@@ -184,7 +191,8 @@ test("lavatory assignments queue and can reroute before use", () => {
       minimumWalkSeconds: 1,
       walkSecondsPerRow: 0,
       useDurationSeconds: [5, 5]
-    }
+    },
+    seatBlockers: instantSeatBlockers
   };
   const state = createInitialState(config);
 
@@ -226,7 +234,8 @@ test("assigned passenger moves through physical aisle cells", () => {
       walkSecondsPerRow: 1,
       passingSlowdownMultiplier: 1,
       useDurationSeconds: [5, 5]
-    }
+    },
+    seatBlockers: instantSeatBlockers
   };
   const state = createInitialState(config);
 
@@ -253,10 +262,10 @@ test("lavatory queues expose physical queue positions", () => {
     aircraft: {
       ...tinyReadableCabin.aircraft,
       rows: 3,
-      seatLayout: ["A", "B", "C"],
-      lavatories: [{ id: "front", row: 0 }]
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 4 }]
     },
-    passengerMix: { normal: 9 },
+    passengerMix: { normal: 3 },
     bladder: {
       ...tinyReadableCabin.bladder,
       initialFillRange: [0.8, 0.8],
@@ -264,10 +273,11 @@ test("lavatory queues expose physical queue positions", () => {
     },
     lavatory: {
       minimumWalkSeconds: 0,
-      walkSecondsPerRow: 1,
+      walkSecondsPerRow: 0,
       passingSlowdownMultiplier: 1,
       useDurationSeconds: [5, 5]
-    }
+    },
+    seatBlockers: instantSeatBlockers
   };
   const state = createInitialState(config);
 
@@ -279,10 +289,10 @@ test("lavatory queues expose physical queue positions", () => {
   assert.equal(state.passengers[0]?.state, "UsingLavatory");
   assert.equal(state.passengers[1]?.state, "QueuedForLavatory");
   assert.equal(state.passengers[1]?.queuePosition, 1);
-  assert.equal(state.passengers[1]?.aisleRow, 1);
+  assert.equal(state.passengers[1]?.aisleRow, 3);
   assert.equal(state.passengers[2]?.queuePosition, 2);
   assert.equal(state.passengers[2]?.aisleRow, 2);
-  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 1)?.passengerIds, ["P002"]);
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 3)?.passengerIds, ["P002"]);
   assert.deepEqual(state.aisleCells.find((cell) => cell.row === 2)?.passengerIds, ["P003"]);
 });
 
@@ -293,10 +303,10 @@ test("passing conflicts slow aisle movement", () => {
     aircraft: {
       ...tinyReadableCabin.aircraft,
       rows: 2,
-      seatLayout: ["A", "B"],
+      seatLayout: ["A"],
       lavatories: [{ id: "front", row: 0 }]
     },
-    passengerMix: { normal: 4 },
+    passengerMix: { normal: 2 },
     bladder: {
       ...tinyReadableCabin.bladder,
       initialFillRange: [0.8, 0.8],
@@ -307,17 +317,18 @@ test("passing conflicts slow aisle movement", () => {
       walkSecondsPerRow: 1,
       passingSlowdownMultiplier: 3,
       useDurationSeconds: [5, 5]
-    }
+    },
+    seatBlockers: instantSeatBlockers
   };
   const state = createInitialState(config);
+  state.passengers[0]!.state = "QueuedForLavatory";
+  state.passengers[0]!.aisleRow = 1;
+  state.passengers[0]!.queuePosition = 1;
 
-  assignPassengerToLavatory(state, "P003", "front");
-  assignPassengerToLavatory(state, "P004", "front");
-  tick(state, 1);
+  assignPassengerToLavatory(state, "P002", "front");
 
-  assert.equal(state.passengers[2]?.aisleRow, 1);
-  assert.equal(state.passengers[3]?.aisleRow, 2);
-  assert.equal(state.passengers[3]?.movementStepSecondsRemaining, 2);
+  assert.equal(state.passengers[1]?.aisleRow, 2);
+  assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 3);
 });
 
 test("passengers can panic while walking to a lavatory", () => {
@@ -340,7 +351,8 @@ test("passengers can panic while walking to a lavatory", () => {
       minimumWalkSeconds: 5,
       walkSecondsPerRow: 0,
       useDurationSeconds: [2, 2]
-    }
+    },
+    seatBlockers: instantSeatBlockers
   };
   const state = createInitialState(config);
 
@@ -360,10 +372,10 @@ test("passengers can panic while queued for a lavatory", () => {
     aircraft: {
       ...tinyReadableCabin.aircraft,
       rows: 1,
-      seatLayout: ["A", "B"],
+      seatLayout: ["A", "B", "C", "D"],
       lavatories: [{ id: "front", row: 1 }]
     },
-    passengerMix: { normal: 2 },
+    passengerMix: { normal: 4 },
     bladder: {
       ...tinyReadableCabin.bladder,
       initialFillRange: [0.99, 0.99],
@@ -373,7 +385,8 @@ test("passengers can panic while queued for a lavatory", () => {
       minimumWalkSeconds: 1,
       walkSecondsPerRow: 0,
       useDurationSeconds: [5, 5]
-    }
+    },
+    seatBlockers: instantSeatBlockers
   };
   const state = createInitialState(config);
 
@@ -385,6 +398,143 @@ test("passengers can panic while queued for a lavatory", () => {
   assert.equal(state.passengers[1]?.assignedLavatoryId, undefined);
   assert.deepEqual(state.lavatories[0]?.queue, []);
   assert.equal(state.events.at(-1)?.type, "panic");
+});
+
+test("inner-seat passengers require blockers to stand before exiting", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A", "B", "C", "D"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 4 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 0,
+      useDurationSeconds: [1, 1]
+    },
+    seatBlockers: {
+      standSeconds: 1,
+      sitSeconds: 1,
+      standCooldownSeconds: 2
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P001", "front");
+
+  assert.equal(state.passengers[0]?.state, "Standing");
+  assert.equal(state.passengers[1]?.state, "Standing");
+  assert.equal(state.passengers[1]?.blockingPassengerId, "P001");
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 1)?.passengerIds, [
+    "P001",
+    "P002"
+  ]);
+
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.state, "UsingLavatory");
+  assert.equal(state.passengers[1]?.state, "Standing");
+
+  tick(state, 1);
+  assert.equal(state.passengers[1]?.state, "Sitting");
+
+  tick(state, 1);
+  assert.equal(state.passengers[1]?.state, "NeedsToGo");
+  assert.equal(state.passengers[1]?.standCooldownSecondsRemaining, 2);
+});
+
+test("seat blocker cooldown delays a blocked passenger before standing", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A", "B", "C", "D"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 4 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 0,
+      useDurationSeconds: [1, 1]
+    },
+    seatBlockers: {
+      standSeconds: 1,
+      sitSeconds: 1,
+      standCooldownSeconds: 2
+    }
+  };
+  const state = createInitialState(config);
+  state.passengers[1]!.standCooldownSecondsRemaining = 1;
+
+  assignPassengerToLavatory(state, "P001", "front");
+  assert.equal(state.passengers[0]?.state, "WaitingForSeatBlockers");
+
+  tick(state, 0.5);
+  assert.equal(state.passengers[0]?.state, "WaitingForSeatBlockers");
+
+  tick(state, 0.5);
+  assert.equal(state.passengers[0]?.state, "Standing");
+  assert.equal(state.passengers[1]?.state, "Standing");
+});
+
+test("returning passengers sit down before becoming seated", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 1 }]
+    },
+    passengerMix: { normal: 1 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 0,
+      useDurationSeconds: [1, 1]
+    },
+    seatBlockers: {
+      standSeconds: 0,
+      sitSeconds: 1,
+      standCooldownSeconds: 0
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P001", "front");
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.state, "UsingLavatory");
+
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.state, "ReturningToSeat");
+
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.state, "Sitting");
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 1)?.passengerIds, ["P001"]);
+
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.state, "Seated");
+  assert.equal(state.passengers[0]?.aisleRow, undefined);
 });
 
 test("CLI rejects malformed lavatory assignments", () => {
