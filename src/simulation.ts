@@ -135,7 +135,6 @@ export function assignPassengerToLavatory(
   passenger.state = "WalkingToLavatory";
   startAisleMovement(state, passenger, lavatory.row, passenger.aisleRow ?? passenger.row);
   passenger.lavatorySecondsRemaining = 0;
-  passenger.queuePosition = undefined;
 
   if (previousLavatoryId !== undefined && previousLavatoryId !== lavatory.id) {
     addEvent(
@@ -292,7 +291,6 @@ function finishLavatoryUse(state: SimulationState, lavatory: Lavatory, passenger
   passenger.panicSeconds = 0;
   passenger.lavatorySecondsRemaining = 0;
   passenger.state = "ReturningToSeat";
-  passenger.queuePosition = undefined;
   startAisleMovement(state, passenger, passenger.row, lavatory.row);
   addEvent(
     state,
