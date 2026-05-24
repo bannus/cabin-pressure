@@ -27,6 +27,7 @@ export const tinyReadableCabin: LevelConfig = {
   lavatory: {
     minimumWalkSeconds: 2,
     walkSecondsPerRow: 0.75,
+    passingSlowdownMultiplier: 2,
     useDurationSeconds: [8, 14]
   },
   loss: {
