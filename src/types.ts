@@ -7,10 +7,13 @@ export type PassengerArchetype =
 export type PassengerState =
   | "Seated"
   | "NeedsToGo"
+  | "WaitingForSeatBlockers"
+  | "Standing"
   | "WalkingToLavatory"
   | "QueuedForLavatory"
   | "UsingLavatory"
   | "ReturningToSeat"
+  | "Sitting"
   | "Panic";
 
 export type SimulationStatus = "running" | "won" | "lost";
@@ -55,6 +58,7 @@ export interface LevelConfig {
   passengerMix: PassengerMixConfig;
   bladder: BladderConfig;
   lavatory: LavatorySystemConfig;
+  seatBlockers: SeatBlockerConfig;
   loss: LossConfig;
 }
 
@@ -63,6 +67,12 @@ export interface LavatorySystemConfig {
   walkSecondsPerRow: number;
   useDurationSeconds: [number, number];
   passingSlowdownMultiplier?: number;
+}
+
+export interface SeatBlockerConfig {
+  standSeconds: number;
+  sitSeconds: number;
+  standCooldownSeconds: number;
 }
 
 export interface AisleCell {
@@ -89,6 +99,10 @@ export interface Passenger {
   lavatorySecondsRemaining: number;
   lavatoryVisitCount: number;
   queuePosition?: number;
+  standSecondsRemaining: number;
+  sitSecondsRemaining: number;
+  standCooldownSecondsRemaining: number;
+  blockingPassengerId?: string;
 }
 
 export interface SimulationEvent {
@@ -103,6 +117,9 @@ export interface SimulationEvent {
     | "lavatoryEntered"
     | "lavatoryComplete"
     | "returned"
+    | "seatBlocked"
+    | "seatBlockerStood"
+    | "seatBlockerSat"
     | "win"
     | "loss";
   passengerId?: string;
@@ -158,4 +175,6 @@ export interface PassengerUrgency {
   assignedLavatoryId?: string;
   aisleRow?: number;
   queuePosition?: number;
+  blockingPassengerId?: string;
+  standCooldownSecondsRemaining: number;
 }

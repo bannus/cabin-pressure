@@ -30,6 +30,11 @@ export const tinyReadableCabin: LevelConfig = {
     passingSlowdownMultiplier: 2,
     useDurationSeconds: [8, 14]
   },
+  seatBlockers: {
+    standSeconds: 1,
+    sitSeconds: 1,
+    standCooldownSeconds: 3
+  },
   loss: {
     panicGraceSeconds: 8,
     maxStrikes: 3,
