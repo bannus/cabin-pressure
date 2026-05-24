@@ -3,7 +3,13 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import test from "node:test";
 import { tinyReadableCabin } from "../src/config";
-import { assignPassengerToLavatory, createInitialState, runSimulation, tick } from "../src/simulation";
+import {
+  assignPassengerToLavatory,
+  createInitialState,
+  runSimulation,
+  startBeverageCart,
+  tick
+} from "../src/simulation";
 import type { LevelConfig } from "../src/types";
 
 const instantSeatBlockers = {
@@ -535,6 +541,156 @@ test("returning passengers sit down before becoming seated", () => {
   tick(state, 1);
   assert.equal(state.passengers[0]?.state, "Seated");
   assert.equal(state.passengers[0]?.aisleRow, undefined);
+});
+
+test("beverage cart starts on trigger and services rows in order", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 3,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 3 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.1, 0.1],
+      baseFillPerSecond: 0
+    },
+    beverageCart: {
+      serviceRows: [1, 3],
+      rowServiceSeconds: [1, 1],
+      moveSecondsPerRow: 1,
+      bladderRateMultiplier: 2,
+      bladderRateDelaySeconds: 5,
+      bladderRateDurationSeconds: 10
+    },
+    seatBlockers: instantSeatBlockers
+  };
+  const state = createInitialState(config);
+
+  assert.equal(state.beverageCart?.state, "ready");
+  startBeverageCart(state);
+  assert.equal(state.beverageCart?.state, "servicing");
+  assert.equal(state.aisleCells.find((cell) => cell.row === 1)?.beverageCartId, "beverage-cart");
+
+  tick(state, 1);
+  assert.equal(state.beverageCart?.state, "moving");
+  assert.equal(state.passengers[0]?.beverageRateModifierStartSeconds, 6);
+
+  tick(state, 2);
+  assert.equal(state.beverageCart?.state, "servicing");
+  assert.equal(state.beverageCart?.currentAisleRow, 3);
+
+  tick(state, 1);
+  assert.equal(state.beverageCart?.state, "complete");
+  assert.deepEqual(state.beverageCart?.passengerIdsServed, ["P001", "P003"]);
+  assert.deepEqual(
+    state.events
+      .filter((event) => event.type.startsWith("beverageCart"))
+      .map((event) => event.type),
+    [
+      "beverageCartStarted",
+      "beverageCartArrived",
+      "beverageCartServiced",
+      "beverageCartDeparted",
+      "beverageCartArrived",
+      "beverageCartServiced",
+      "beverageCartComplete"
+    ]
+  );
+});
+
+test("beverage service applies a delayed bladder rate modifier window", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 20,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 1 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0, 0],
+      baseFillPerSecond: 1
+    },
+    beverageCart: {
+      serviceRows: [1],
+      rowServiceSeconds: [1, 1],
+      moveSecondsPerRow: 0,
+      bladderRateMultiplier: 3,
+      bladderRateDelaySeconds: 2,
+      bladderRateDurationSeconds: 3
+    },
+    seatBlockers: instantSeatBlockers,
+    loss: {
+      ...tinyReadableCabin.loss,
+      panicGraceSeconds: 100
+    }
+  };
+  const state = createInitialState(config);
+
+  startBeverageCart(state);
+  tick(state, 1);
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.beverageRateMultiplier, 1);
+  assert.equal(state.passengers[0]?.rawBladder, 2);
+
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.beverageRateMultiplier, 3);
+  assert.equal(state.passengers[0]?.rawBladder, 5);
+
+  tick(state, 1);
+  tick(state, 1);
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.beverageRateMultiplier, 1);
+  assert.equal(state.passengers[0]?.rawBladder, 12);
+});
+
+test("active beverage cart occupies aisle cells and slows passenger movement", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 2,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 2 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 4,
+      useDurationSeconds: [5, 5]
+    },
+    beverageCart: {
+      serviceRows: [1],
+      rowServiceSeconds: [5, 5],
+      moveSecondsPerRow: 1,
+      bladderRateMultiplier: 2,
+      bladderRateDelaySeconds: 0,
+      bladderRateDurationSeconds: 1
+    },
+    seatBlockers: instantSeatBlockers
+  };
+  const state = createInitialState(config);
+
+  startBeverageCart(state);
+  assignPassengerToLavatory(state, "P002", "front");
+
+  assert.equal(state.aisleCells.find((cell) => cell.row === 1)?.beverageCartId, "beverage-cart");
+  assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 4);
 });
 
 test("CLI rejects malformed lavatory assignments", () => {

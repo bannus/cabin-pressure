@@ -2,6 +2,7 @@ import { ARCHETYPES } from "./archetypes";
 import { SeededRng } from "./rng";
 import type {
   AisleCell,
+  BeverageCart,
   Lavatory,
   LevelConfig,
   Passenger,
@@ -51,11 +52,12 @@ export function createInitialState(config: LevelConfig): SimulationState {
       lavatoryVisitCount: 0,
       standSecondsRemaining: 0,
       sitSecondsRemaining: 0,
-      standCooldownSecondsRemaining: 0
+      standCooldownSecondsRemaining: 0,
+      beverageRateMultiplier: 1
     };
   });
 
-  return {
+  const state: SimulationState = {
     config,
     time: 0,
     status: "running",
@@ -67,8 +69,16 @@ export function createInitialState(config: LevelConfig): SimulationState {
       row: lavatory.row,
       queue: []
     })),
+    beverageCart: buildBeverageCart(config),
     events: []
   };
+
+  refreshAisleCells(state);
+  if (config.beverageCart?.autoStart === true) {
+    startBeverageCart(state);
+  }
+
+  return state;
 }
 
 export function tick(state: SimulationState, dt: number): SimulationState {
@@ -164,6 +174,30 @@ export function assignPassengerToLavatory(
   return state;
 }
 
+export function startBeverageCart(state: SimulationState): SimulationState {
+  if (state.status !== "running") {
+    throw new Error("cannot start beverage cart after simulation has ended");
+  }
+
+  const cart = state.beverageCart;
+  if (cart === undefined) {
+    throw new Error("level does not configure a beverage cart");
+  }
+
+  if (cart.state !== "ready") {
+    return state;
+  }
+
+  addEvent(
+    state,
+    "beverageCartStarted",
+    `${cart.id} beverage cart started service at row ${cart.currentAisleRow}.`
+  );
+  startBeverageRowService(state, cart);
+  refreshAisleCells(state);
+  return state;
+}
+
 export function summarize(state: SimulationState, urgentLimit = 5): SimulationSummary {
   const urgency = state.passengers
     .map(toUrgency)
@@ -187,7 +221,8 @@ export function summarize(state: SimulationState, urgentLimit = 5): SimulationSu
     averageBladderPercent,
     aisleCells: state.aisleCells.map((cell) => ({
       row: cell.row,
-      passengerIds: [...cell.passengerIds]
+      passengerIds: [...cell.passengerIds],
+      beverageCartId: cell.beverageCartId
     })),
     lavatories: state.lavatories.map((lavatory) => ({
       id: lavatory.id,
@@ -195,6 +230,12 @@ export function summarize(state: SimulationState, urgentLimit = 5): SimulationSu
       occupantPassengerId: lavatory.occupantPassengerId,
       queue: [...lavatory.queue]
     })),
+    beverageCart: state.beverageCart
+      ? {
+          ...state.beverageCart,
+          passengerIdsServed: [...state.beverageCart.passengerIdsServed]
+        }
+      : undefined,
     mostUrgent: urgency.slice(0, urgentLimit)
   };
 }
@@ -204,6 +245,7 @@ export function bladderPercent(passenger: Passenger): number {
 }
 
 function updateLavatoryProgress(state: SimulationState, dt: number): void {
+  updateBeverageCartProgress(state, dt);
   updateSeatBlockerProgress(state, dt);
 
   for (const passenger of state.passengers) {
@@ -560,8 +602,12 @@ function finishLavatoryUse(state: SimulationState, lavatory: Lavatory, passenger
 }
 
 function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt: number): boolean {
+  updateBeverageModifier(state, passenger);
   passenger.rawBladder +=
-    state.config.bladder.baseFillPerSecond * passenger.bladderRateMultiplier * dt;
+    state.config.bladder.baseFillPerSecond *
+    passenger.bladderRateMultiplier *
+    passenger.beverageRateMultiplier *
+    dt;
 
   const percent = bladderPercent(passenger);
   const previousState = passenger.state;
@@ -749,7 +795,13 @@ function nextAisleStepSeconds(state: SimulationState, passenger: Passenger): num
       isInAisle(candidate) &&
       (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
   );
+  const hasCartConflict =
+    state.beverageCart !== undefined &&
+    (state.beverageCart.state === "moving" || state.beverageCart.state === "servicing") &&
+    (state.beverageCart.currentAisleRow === passenger.aisleRow ||
+      state.beverageCart.currentAisleRow === nextRow);
   return hasPassingConflict
+    || hasCartConflict
     ? baseSeconds * (state.config.lavatory.passingSlowdownMultiplier ?? 2)
     : baseSeconds;
 }
@@ -793,7 +845,8 @@ function buildAisleCells(config: LevelConfig, passengers: Passenger[]): AisleCel
       row,
       passengerIds: passengers
         .filter((passenger) => isInAisle(passenger) && passenger.aisleRow === row)
-        .map((passenger) => passenger.id)
+        .map((passenger) => passenger.id),
+      beverageCartId: undefined
     });
   }
   return cells;
@@ -801,6 +854,181 @@ function buildAisleCells(config: LevelConfig, passengers: Passenger[]): AisleCel
 
 function refreshAisleCells(state: SimulationState): void {
   state.aisleCells = buildAisleCells(state.config, state.passengers);
+  if (
+    state.beverageCart !== undefined &&
+    (state.beverageCart.state === "moving" || state.beverageCart.state === "servicing")
+  ) {
+    const cartCell = state.aisleCells.find(
+      (cell) => cell.row === state.beverageCart?.currentAisleRow
+    );
+    if (cartCell !== undefined) {
+      cartCell.beverageCartId = state.beverageCart.id;
+    }
+  }
+}
+
+function buildBeverageCart(config: LevelConfig): BeverageCart | undefined {
+  const cartConfig = config.beverageCart;
+  if (cartConfig === undefined) {
+    return undefined;
+  }
+
+  return {
+    id: "beverage-cart",
+    state: "ready",
+    currentAisleRow: cartConfig.serviceRows[0] ?? 1,
+    serviceRowIndex: 0,
+    serviceSecondsRemaining: 0,
+    movementStepSecondsRemaining: 0,
+    passengerIdsServed: []
+  };
+}
+
+function updateBeverageCartProgress(state: SimulationState, dt: number): void {
+  const cart = state.beverageCart;
+  if (cart === undefined) {
+    return;
+  }
+
+  if (cart.state === "servicing") {
+    cart.serviceSecondsRemaining = Math.max(0, cart.serviceSecondsRemaining - dt);
+    if (cart.serviceSecondsRemaining === 0) {
+      finishBeverageRowService(state, cart);
+    }
+    refreshAisleCells(state);
+    return;
+  }
+
+  if (cart.state !== "moving") {
+    return;
+  }
+
+  let remainingDt = dt;
+  while (remainingDt > 0 && cart.destinationAisleRow !== undefined) {
+    if (cart.currentAisleRow === cart.destinationAisleRow) {
+      startBeverageRowService(state, cart);
+      break;
+    }
+
+    if (cart.movementStepSecondsRemaining === 0) {
+      cart.movementStepSecondsRemaining = state.config.beverageCart?.moveSecondsPerRow ?? 0;
+    }
+
+    if (cart.movementStepSecondsRemaining === 0) {
+      cart.currentAisleRow = nextCartAisleRow(cart);
+      refreshAisleCells(state);
+      continue;
+    }
+
+    const elapsed = Math.min(remainingDt, cart.movementStepSecondsRemaining);
+    cart.movementStepSecondsRemaining = Math.max(0, cart.movementStepSecondsRemaining - elapsed);
+    remainingDt -= elapsed;
+
+    if (cart.movementStepSecondsRemaining > 0) {
+      break;
+    }
+
+    cart.currentAisleRow = nextCartAisleRow(cart);
+    refreshAisleCells(state);
+  }
+}
+
+function startBeverageRowService(state: SimulationState, cart: BeverageCart): void {
+  const cartConfig = requireBeverageCartConfig(state);
+  cart.state = "servicing";
+  cart.destinationAisleRow = undefined;
+  cart.movementStepSecondsRemaining = 0;
+  cart.currentAisleRow = cartConfig.serviceRows[cart.serviceRowIndex] ?? cart.currentAisleRow;
+  cart.serviceSecondsRemaining = beverageRowServiceSeconds(state, cart.serviceRowIndex);
+  addEvent(
+    state,
+    "beverageCartArrived",
+    `${cart.id} arrived to service row ${cart.currentAisleRow}.`
+  );
+}
+
+function finishBeverageRowService(state: SimulationState, cart: BeverageCart): void {
+  const cartConfig = requireBeverageCartConfig(state);
+  const passengersInRow = state.passengers.filter((passenger) => passenger.row === cart.currentAisleRow);
+
+  for (const passenger of passengersInRow) {
+    passenger.beverageRateModifierStartSeconds = state.time + cartConfig.bladderRateDelaySeconds;
+    passenger.beverageRateModifierEndSeconds =
+      passenger.beverageRateModifierStartSeconds + cartConfig.bladderRateDurationSeconds;
+    cart.passengerIdsServed.push(passenger.id);
+  }
+
+  addEvent(
+    state,
+    "beverageCartServiced",
+    `${cart.id} serviced row ${cart.currentAisleRow} (${passengersInRow.length} passenger(s)).`
+  );
+
+  cart.serviceRowIndex += 1;
+  const nextServiceRow = cartConfig.serviceRows[cart.serviceRowIndex];
+  if (nextServiceRow === undefined) {
+    cart.state = "complete";
+    cart.destinationAisleRow = undefined;
+    cart.serviceSecondsRemaining = 0;
+    cart.movementStepSecondsRemaining = 0;
+    addEvent(state, "beverageCartComplete", `${cart.id} completed service.`);
+    refreshAisleCells(state);
+    return;
+  }
+
+  cart.state = "moving";
+  cart.destinationAisleRow = nextServiceRow;
+  cart.serviceSecondsRemaining = 0;
+  cart.movementStepSecondsRemaining = state.config.beverageCart?.moveSecondsPerRow ?? 0;
+  addEvent(
+    state,
+    "beverageCartDeparted",
+    `${cart.id} departed row ${cart.currentAisleRow} for row ${nextServiceRow}.`
+  );
+  refreshAisleCells(state);
+}
+
+function updateBeverageModifier(state: SimulationState, passenger: Passenger): void {
+  const cartConfig = state.config.beverageCart;
+  if (
+    cartConfig === undefined ||
+    passenger.beverageRateModifierStartSeconds === undefined ||
+    passenger.beverageRateModifierEndSeconds === undefined
+  ) {
+    passenger.beverageRateMultiplier = 1;
+    return;
+  }
+
+  passenger.beverageRateMultiplier =
+    state.time >= passenger.beverageRateModifierStartSeconds &&
+    state.time < passenger.beverageRateModifierEndSeconds
+      ? cartConfig.bladderRateMultiplier
+      : 1;
+}
+
+function nextCartAisleRow(cart: BeverageCart): number {
+  if (cart.destinationAisleRow === undefined) {
+    throw new Error(`${cart.id} is missing a destination row`);
+  }
+  return cart.currentAisleRow + Math.sign(cart.destinationAisleRow - cart.currentAisleRow);
+}
+
+function beverageRowServiceSeconds(state: SimulationState, serviceRowIndex: number): number {
+  const [min, max] = requireBeverageCartConfig(state).rowServiceSeconds;
+  if (min === max) {
+    return min;
+  }
+
+  const hash = hashString(`${state.config.seed}:beverage-cart:${serviceRowIndex}`);
+  return min + (max - min) * hash;
+}
+
+function requireBeverageCartConfig(state: SimulationState) {
+  const cartConfig = state.config.beverageCart;
+  if (cartConfig === undefined) {
+    throw new Error("level does not configure a beverage cart");
+  }
+  return cartConfig;
 }
 
 function updateLavatoryQueuePositions(state: SimulationState, lavatory: Lavatory): void {
@@ -891,6 +1119,37 @@ function validateConfig(config: LevelConfig): void {
   ) {
     throw new Error("seat blocker timings must be non-negative");
   }
+  if (config.beverageCart !== undefined) {
+    if (config.beverageCart.serviceRows.length < 1) {
+      throw new Error("beverageCart.serviceRows must contain rows");
+    }
+    if (
+      config.beverageCart.serviceRows.some(
+        (row) => row < 1 || row > config.aircraft.rows || !Number.isInteger(row)
+      )
+    ) {
+      throw new Error("beverageCart.serviceRows must be aircraft row numbers");
+    }
+    if (
+      config.beverageCart.rowServiceSeconds[0] < 0 ||
+      config.beverageCart.rowServiceSeconds[1] < 0 ||
+      config.beverageCart.rowServiceSeconds[0] > config.beverageCart.rowServiceSeconds[1]
+    ) {
+      throw new Error("beverageCart.rowServiceSeconds must be a non-negative range");
+    }
+    if (config.beverageCart.moveSecondsPerRow < 0) {
+      throw new Error("beverageCart.moveSecondsPerRow must be non-negative");
+    }
+    if (config.beverageCart.bladderRateMultiplier < 0) {
+      throw new Error("beverageCart.bladderRateMultiplier must be non-negative");
+    }
+    if (
+      config.beverageCart.bladderRateDelaySeconds < 0 ||
+      config.beverageCart.bladderRateDurationSeconds < 0
+    ) {
+      throw new Error("beverage cart bladder modifier timings must be non-negative");
+    }
+  }
   if (config.loss.maxStrikes < 1) {
     throw new Error("loss.maxStrikes must be at least 1");
   }
@@ -909,7 +1168,10 @@ function toUrgency(passenger: Passenger): PassengerUrgency {
     aisleRow: passenger.aisleRow,
     queuePosition: passenger.queuePosition,
     blockingPassengerId: passenger.blockingPassengerId,
-    standCooldownSecondsRemaining: passenger.standCooldownSecondsRemaining
+    standCooldownSecondsRemaining: passenger.standCooldownSecondsRemaining,
+    beverageRateMultiplier: passenger.beverageRateMultiplier,
+    beverageRateModifierStartSeconds: passenger.beverageRateModifierStartSeconds,
+    beverageRateModifierEndSeconds: passenger.beverageRateModifierEndSeconds
   };
 }
 

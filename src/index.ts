@@ -3,12 +3,16 @@ export {
   assignPassengerToLavatory,
   createInitialState,
   runSimulation,
+  startBeverageCart,
   summarize,
   tick
 } from "./simulation";
 export type {
   AircraftConfig,
   AisleCell,
+  BeverageCart,
+  BeverageCartConfig,
+  BeverageCartState,
   BladderConfig,
   LavatoryConfig,
   Lavatory,

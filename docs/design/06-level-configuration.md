@@ -36,7 +36,8 @@ logic.
 - 32 passengers
 - 180 seconds
 - normal, small bladder, and big bladder archetypes
-- no movement, cart, turbulence, or baby events yet
+- no turbulence or baby events yet
+- beverage cart is configured but starts only when triggered
 
 ## Initial bladder tuning
 
@@ -88,6 +89,5 @@ leave the passenger close to another crisis.
 
 ## Future fields
 
-Later milestones should add row exit timings, physical movement speed, beverage
-service, turbulence events, weighted initial bladder distribution, and bot
-tuning parameters.
+Later milestones should add row exit timings, turbulence events, weighted
+initial bladder distribution, and bot tuning parameters.

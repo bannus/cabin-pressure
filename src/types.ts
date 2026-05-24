@@ -59,6 +59,7 @@ export interface LevelConfig {
   bladder: BladderConfig;
   lavatory: LavatorySystemConfig;
   seatBlockers: SeatBlockerConfig;
+  beverageCart?: BeverageCartConfig;
   loss: LossConfig;
 }
 
@@ -78,6 +79,30 @@ export interface SeatBlockerConfig {
 export interface AisleCell {
   row: number;
   passengerIds: string[];
+  beverageCartId?: string;
+}
+
+export interface BeverageCartConfig {
+  serviceRows: number[];
+  rowServiceSeconds: [number, number];
+  moveSecondsPerRow: number;
+  bladderRateMultiplier: number;
+  bladderRateDelaySeconds: number;
+  bladderRateDurationSeconds: number;
+  autoStart?: boolean;
+}
+
+export type BeverageCartState = "ready" | "moving" | "servicing" | "complete";
+
+export interface BeverageCart {
+  id: string;
+  state: BeverageCartState;
+  currentAisleRow: number;
+  destinationAisleRow?: number;
+  serviceRowIndex: number;
+  serviceSecondsRemaining: number;
+  movementStepSecondsRemaining: number;
+  passengerIdsServed: string[];
 }
 
 export interface Passenger {
@@ -103,6 +128,9 @@ export interface Passenger {
   sitSecondsRemaining: number;
   standCooldownSecondsRemaining: number;
   blockingPassengerId?: string;
+  beverageRateMultiplier: number;
+  beverageRateModifierStartSeconds?: number;
+  beverageRateModifierEndSeconds?: number;
 }
 
 export interface SimulationEvent {
@@ -120,6 +148,11 @@ export interface SimulationEvent {
     | "seatBlocked"
     | "seatBlockerStood"
     | "seatBlockerSat"
+    | "beverageCartStarted"
+    | "beverageCartArrived"
+    | "beverageCartServiced"
+    | "beverageCartDeparted"
+    | "beverageCartComplete"
     | "win"
     | "loss";
   passengerId?: string;
@@ -142,6 +175,7 @@ export interface SimulationState {
   passengers: Passenger[];
   aisleCells: AisleCell[];
   lavatories: Lavatory[];
+  beverageCart?: BeverageCart;
   events: SimulationEvent[];
 }
 
@@ -154,6 +188,7 @@ export interface SimulationSummary {
   averageBladderPercent: number;
   aisleCells: AisleCell[];
   lavatories: LavatorySummary[];
+  beverageCart?: BeverageCart;
   mostUrgent: PassengerUrgency[];
 }
 
@@ -177,4 +212,7 @@ export interface PassengerUrgency {
   queuePosition?: number;
   blockingPassengerId?: string;
   standCooldownSecondsRemaining: number;
+  beverageRateMultiplier: number;
+  beverageRateModifierStartSeconds?: number;
+  beverageRateModifierEndSeconds?: number;
 }

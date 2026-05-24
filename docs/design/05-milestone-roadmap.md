@@ -84,6 +84,13 @@ Implemented features:
 Add a physical cart, row service, delayed bladder-rate modifiers, and debug
 triggers.
 
+Implemented features:
+
+- configurable service rows, per-row service duration, and cart movement speed
+- cart aisle occupancy while moving or servicing rows
+- delayed passenger bladder-rate modifiers after beverage service
+- browser debugger trigger and cart visualization
+
 ## Milestone 6: Turbulence and seat belt sign
 
 Add warning phase, possible seat belt sign, forced returns, movement lockout, and
