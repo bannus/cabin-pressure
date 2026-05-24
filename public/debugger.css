@@ -143,6 +143,16 @@ main {
   grid-column: 1 / -1;
   border: 1px dashed #38bdf8;
   color: #bae6fd;
+  background: rgba(8, 47, 73, 0.35);
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  padding: 8px 12px;
+}
+
+.lavatory-marker:hover {
+  border-color: #7dd3fc;
+  background: rgba(8, 47, 73, 0.65);
 }
 
 .sidebar,
