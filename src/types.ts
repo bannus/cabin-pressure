@@ -62,6 +62,12 @@ export interface LavatorySystemConfig {
   minimumWalkSeconds: number;
   walkSecondsPerRow: number;
   useDurationSeconds: [number, number];
+  passingSlowdownMultiplier?: number;
+}
+
+export interface AisleCell {
+  row: number;
+  passengerIds: string[];
 }
 
 export interface Passenger {
@@ -76,9 +82,13 @@ export interface Passenger {
   panicSeconds: number;
   strikeCount: number;
   assignedLavatoryId?: string;
+  aisleRow?: number;
+  destinationAisleRow?: number;
+  movementStepSecondsRemaining: number;
   movementSecondsRemaining: number;
   lavatorySecondsRemaining: number;
   lavatoryVisitCount: number;
+  queuePosition?: number;
 }
 
 export interface SimulationEvent {
@@ -113,6 +123,7 @@ export interface SimulationState {
   status: SimulationStatus;
   strikes: number;
   passengers: Passenger[];
+  aisleCells: AisleCell[];
   lavatories: Lavatory[];
   events: SimulationEvent[];
 }
@@ -124,6 +135,7 @@ export interface SimulationSummary {
   panicCount: number;
   needsToGoCount: number;
   averageBladderPercent: number;
+  aisleCells: AisleCell[];
   lavatories: LavatorySummary[];
   mostUrgent: PassengerUrgency[];
 }
@@ -144,4 +156,6 @@ export interface PassengerUrgency {
   bladderPercent: number;
   strikeCount: number;
   assignedLavatoryId?: string;
+  aisleRow?: number;
+  queuePosition?: number;
 }
