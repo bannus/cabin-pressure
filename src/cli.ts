@@ -21,12 +21,13 @@ for (const assignment of options.assignments) {
 let nextSummaryAt = 0;
 let printedEvents = 0;
 
-console.log(`Cabin Pressure milestone 4 simulation`);
+console.log(`Cabin Pressure milestone 5 simulation`);
 console.log(`Level: ${config.name} (${config.id})`);
 console.log(`Seed: ${config.seed}`);
 console.log(`Duration: ${config.durationSeconds}s`);
 console.log(`Passengers: ${state.passengers.length}`);
 console.log(`Lavatories: ${state.lavatories.map((lavatory) => lavatory.id).join(", ")}`);
+console.log(`Beverage cart: ${state.beverageCart ? state.beverageCart.state : "not configured"}`);
 console.log("");
 
 while (state.status === "running") {
@@ -73,10 +74,23 @@ function printSummary(): void {
   );
   console.log(
     `  aisle: ${summary.aisleCells
-      .filter((cell) => cell.passengerIds.length > 0)
-      .map((cell) => `${cell.row}=[${cell.passengerIds.join(",")}]`)
+      .filter((cell) => cell.passengerIds.length > 0 || cell.beverageCartId !== undefined)
+      .map(
+        (cell) =>
+          `${cell.row}=[${[...cell.passengerIds, cell.beverageCartId ?? ""]
+            .filter((id) => id.length > 0)
+            .join(",")}]`
+      )
       .join("; ") || "-"}`
   );
+  if (summary.beverageCart !== undefined) {
+    console.log(
+      `  cart: ${summary.beverageCart.state} row=${summary.beverageCart.currentAisleRow} ` +
+        `dest=${summary.beverageCart.destinationAisleRow ?? "-"} served=${
+          summary.beverageCart.passengerIdsServed.length
+        }`
+    );
+  }
 }
 
 function printNewEvents(): void {

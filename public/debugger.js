@@ -9,7 +9,8 @@ const config = {
     { id: "front", row: 0 },
     { id: "rear", row: 9 }
   ],
-  baseFillPerSecond: 100 / 220,
+  initialFillRange: [0.0, 0.25],
+  baseFillPerSecond: 100 / 350,
   requestThreshold: 0.7,
   desperateThreshold: 0.9,
   minimumWalkSeconds: 2,
@@ -20,6 +21,15 @@ const config = {
     standSeconds: 1,
     sitSeconds: 1,
     standCooldownSeconds: 3
+  },
+  beverageCart: {
+    serviceRows: [2, 3, 4, 5, 6, 7],
+    rowServiceSeconds: [2, 3],
+    moveSecondsPerRow: 1,
+    bladderRateMultiplier: 1.35,
+    bladderRateDelaySeconds: 20,
+    bladderRateDurationSeconds: 45,
+    autoStart: false
   }
 };
 
@@ -40,6 +50,7 @@ const clockElement = document.querySelector("#clock");
 const selectedElement = document.querySelector("#selectedPassenger");
 const assignmentElement = document.querySelector("#assignmentButtons");
 const lavatoriesElement = document.querySelector("#lavatories");
+const beverageCartElement = document.querySelector("#beverageCart");
 const configElement = document.querySelector("#config");
 const eventLogElement = document.querySelector("#eventLog");
 const playPauseElement = document.querySelector("#playPause");
@@ -53,13 +64,20 @@ configElement.textContent = JSON.stringify(
     rows: config.rows,
     seatLayout: config.seatLayout,
     lavatories: config.lavatories,
+    bladder: {
+      initialFillRange: config.initialFillRange,
+      baseFillPerSecond: config.baseFillPerSecond,
+      requestThreshold: config.requestThreshold,
+      desperateThreshold: config.desperateThreshold
+    },
     lavatoryTiming: {
       minimumWalkSeconds: config.minimumWalkSeconds,
       walkSecondsPerRow: config.walkSecondsPerRow,
       passingSlowdownMultiplier: config.passingSlowdownMultiplier,
       useDurationSeconds: config.useDurationSeconds
     },
-    seatBlockers: config.seatBlockers
+    seatBlockers: config.seatBlockers,
+    beverageCart: config.beverageCart
   },
   null,
   2
@@ -74,6 +92,10 @@ speedElement.addEventListener("change", () => {
 });
 document.querySelector("#step").addEventListener("click", () => {
   tick(1);
+  render();
+});
+document.querySelector("#startCart").addEventListener("click", () => {
+  startBeverageCart();
   render();
 });
 document.querySelector("#reset").addEventListener("click", () => {
@@ -113,7 +135,7 @@ function createState() {
       const index = passengers.length;
       const archetype = archetypeList[index] ?? "normal";
       const definition = archetypes[archetype];
-      const fillPercent = range(rng, 0.05, 0.45);
+      const fillPercent = range(rng, config.initialFillRange[0], config.initialFillRange[1]);
       passengers.push({
         id: `P${String(index + 1).padStart(3, "0")}`,
         row,
@@ -134,7 +156,10 @@ function createState() {
         standSecondsRemaining: 0,
         sitSecondsRemaining: 0,
         standCooldownSecondsRemaining: 0,
-        blockingPassengerId: undefined
+        blockingPassengerId: undefined,
+        beverageRateMultiplier: 1,
+        beverageRateModifierStartSeconds: undefined,
+        beverageRateModifierEndSeconds: undefined
       });
     }
   }
@@ -144,6 +169,16 @@ function createState() {
     passengers,
     aisleCells: buildAisleCells(passengers),
     lavatories: config.lavatories.map((lavatory) => ({ ...lavatory, occupant: undefined, queue: [] })),
+    beverageCart: {
+      id: "beverage-cart",
+      state: "ready",
+      currentAisleRow: config.beverageCart.serviceRows[0],
+      destinationAisleRow: undefined,
+      serviceRowIndex: 0,
+      serviceSecondsRemaining: 0,
+      movementStepSecondsRemaining: 0,
+      passengerIdsServed: []
+    },
     events: []
   };
 }
@@ -151,6 +186,7 @@ function createState() {
 function tick(dt) {
   state.time = Math.min(config.durationSeconds, state.time + dt);
 
+  updateBeverageCart(dt);
   updateSeatBlockers(dt);
 
   for (const passenger of state.passengers) {
@@ -191,7 +227,8 @@ function tick(dt) {
     if (passenger.state === "UsingLavatory") {
       continue;
     }
-    passenger.rawBladder += config.baseFillPerSecond * passenger.multiplier * dt;
+    updateBeverageModifier(passenger);
+    passenger.rawBladder += config.baseFillPerSecond * passenger.multiplier * passenger.beverageRateMultiplier * dt;
     const percent = bladderPercent(passenger);
     if (passenger.state === "Seated" && percent >= config.requestThreshold) {
       passenger.state = "NeedsToGo";
@@ -208,6 +245,15 @@ function tick(dt) {
     state.status = "won";
     log("Landed.");
   }
+}
+
+function startBeverageCart() {
+  const cart = state.beverageCart;
+  if (!cart || cart.state !== "ready") {
+    return;
+  }
+  log(`${cart.id} beverage cart started service at row ${cart.currentAisleRow}.`);
+  startBeverageRowService(cart);
 }
 
 function assign(passengerId, lavatoryId) {
@@ -484,6 +530,7 @@ function render() {
   cabinElement.append(lavatoryMarker("rear"));
   renderSelected();
   renderLavatories();
+  renderBeverageCart();
   renderLog();
 }
 
@@ -504,8 +551,10 @@ function aisle(row) {
   const div = document.createElement("div");
   const cell = state.aisleCells.find((candidate) => candidate.row === row);
   const passengerIds = cell?.passengerIds ?? [];
-  div.className = `aisle ${passengerIds.length > 0 ? "occupied" : ""}`;
-  div.textContent = passengerIds.length > 0 ? `${row} · ${passengerIds.join(",")}` : String(row);
+  const cartId = cell?.beverageCartId;
+  const occupants = [...passengerIds, cartId ? "cart" : ""].filter(Boolean);
+  div.className = `aisle ${occupants.length > 0 ? "occupied" : ""} ${cartId ? "cart" : ""}`;
+  div.textContent = occupants.length > 0 ? `${row} · ${occupants.join(",")}` : String(row);
   return div;
 }
 
@@ -530,6 +579,14 @@ function renderSelected() {
     button.addEventListener("click", () => assign(passenger.id, lavatory.id));
     assignmentElement.append(button);
   }
+}
+
+function renderBeverageCart() {
+  const cart = state.beverageCart;
+  beverageCartElement.textContent = cart
+    ? `${cart.state} · row ${cart.currentAisleRow} · dest ${cart.destinationAisleRow ?? "-"} · ` +
+      `service ${cart.serviceSecondsRemaining.toFixed(1)}s · served ${cart.passengerIdsServed.length}`
+    : "Not configured";
 }
 
 function renderLavatories() {
@@ -571,6 +628,109 @@ function bladderColor(percent) {
   if (percent >= config.desperateThreshold) return "#f97316";
   if (percent >= config.requestThreshold) return "#facc15";
   return "#22c55e";
+}
+
+function updateBeverageCart(dt) {
+  const cart = state.beverageCart;
+  if (!cart) return;
+
+  if (cart.state === "servicing") {
+    cart.serviceSecondsRemaining = Math.max(0, cart.serviceSecondsRemaining - dt);
+    if (cart.serviceSecondsRemaining === 0) {
+      finishBeverageRowService(cart);
+    }
+    refreshAisleCells();
+    return;
+  }
+
+  if (cart.state !== "moving") return;
+
+  let remainingDt = dt;
+  while (remainingDt > 0 && cart.destinationAisleRow !== undefined) {
+    if (cart.currentAisleRow === cart.destinationAisleRow) {
+      startBeverageRowService(cart);
+      break;
+    }
+    if (cart.movementStepSecondsRemaining === 0) {
+      cart.movementStepSecondsRemaining = config.beverageCart.moveSecondsPerRow;
+    }
+    if (cart.movementStepSecondsRemaining === 0) {
+      cart.currentAisleRow = nextCartAisleRow(cart);
+      refreshAisleCells();
+      continue;
+    }
+    const elapsed = Math.min(remainingDt, cart.movementStepSecondsRemaining);
+    cart.movementStepSecondsRemaining = Math.max(0, cart.movementStepSecondsRemaining - elapsed);
+    remainingDt -= elapsed;
+    if (cart.movementStepSecondsRemaining === 0) {
+      cart.currentAisleRow = nextCartAisleRow(cart);
+      refreshAisleCells();
+      if (cart.currentAisleRow === cart.destinationAisleRow) {
+        startBeverageRowService(cart);
+        break;
+      }
+    }
+  }
+}
+
+function startBeverageRowService(cart) {
+  cart.state = "servicing";
+  cart.destinationAisleRow = undefined;
+  cart.movementStepSecondsRemaining = 0;
+  cart.currentAisleRow = config.beverageCart.serviceRows[cart.serviceRowIndex] ?? cart.currentAisleRow;
+  cart.serviceSecondsRemaining = beverageRowServiceSeconds(cart.serviceRowIndex);
+  log(`${cart.id} arrived to service row ${cart.currentAisleRow}.`);
+  refreshAisleCells();
+}
+
+function finishBeverageRowService(cart) {
+  const passengersInRow = state.passengers.filter((passenger) => passenger.row === cart.currentAisleRow);
+  for (const passenger of passengersInRow) {
+    passenger.beverageRateModifierStartSeconds = state.time + config.beverageCart.bladderRateDelaySeconds;
+    passenger.beverageRateModifierEndSeconds =
+      passenger.beverageRateModifierStartSeconds + config.beverageCart.bladderRateDurationSeconds;
+    cart.passengerIdsServed.push(passenger.id);
+  }
+  log(`${cart.id} serviced row ${cart.currentAisleRow} (${passengersInRow.length} passenger(s)).`);
+
+  cart.serviceRowIndex += 1;
+  const nextServiceRow = config.beverageCart.serviceRows[cart.serviceRowIndex];
+  if (nextServiceRow === undefined) {
+    cart.state = "complete";
+    cart.destinationAisleRow = undefined;
+    cart.serviceSecondsRemaining = 0;
+    cart.movementStepSecondsRemaining = 0;
+    log(`${cart.id} completed service.`);
+    refreshAisleCells();
+    return;
+  }
+
+  cart.state = "moving";
+  cart.destinationAisleRow = nextServiceRow;
+  cart.serviceSecondsRemaining = 0;
+  cart.movementStepSecondsRemaining = config.beverageCart.moveSecondsPerRow;
+  log(`${cart.id} departed row ${cart.currentAisleRow} for row ${nextServiceRow}.`);
+  refreshAisleCells();
+}
+
+function updateBeverageModifier(passenger) {
+  passenger.beverageRateMultiplier =
+    passenger.beverageRateModifierStartSeconds !== undefined &&
+    passenger.beverageRateModifierEndSeconds !== undefined &&
+    state.time >= passenger.beverageRateModifierStartSeconds &&
+    state.time < passenger.beverageRateModifierEndSeconds
+      ? config.beverageCart.bladderRateMultiplier
+      : 1;
+}
+
+function nextCartAisleRow(cart) {
+  return cart.currentAisleRow + Math.sign(cart.destinationAisleRow - cart.currentAisleRow);
+}
+
+function beverageRowServiceSeconds(serviceRowIndex) {
+  const [min, max] = config.beverageCart.rowServiceSeconds;
+  if (min === max) return min;
+  return min + (max - min) * (hash(`${config.seed}:beverage-cart:${serviceRowIndex}`) / 4294967296);
 }
 
 function walkSeconds(passenger, lavatory) {
@@ -653,7 +813,12 @@ function nextAisleStepSeconds(passenger) {
       isInAisle(candidate) &&
       (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
   );
-  return config.walkSecondsPerRow * (conflict ? config.passingSlowdownMultiplier : 1);
+  const cartConflict =
+    state.beverageCart &&
+    ["moving", "servicing"].includes(state.beverageCart.state) &&
+    (state.beverageCart.currentAisleRow === passenger.aisleRow ||
+      state.beverageCart.currentAisleRow === nextRow);
+  return config.walkSecondsPerRow * (conflict || cartConflict ? config.passingSlowdownMultiplier : 1);
 }
 
 function nextAisleRow(passenger) {
@@ -666,6 +831,12 @@ function isInAisle(passenger) {
 
 function refreshAisleCells() {
   state.aisleCells = buildAisleCells(state.passengers);
+  if (state.beverageCart && ["moving", "servicing"].includes(state.beverageCart.state)) {
+    const cell = state.aisleCells.find((candidate) => candidate.row === state.beverageCart.currentAisleRow);
+    if (cell) {
+      cell.beverageCartId = state.beverageCart.id;
+    }
+  }
 }
 
 function buildAisleCells(passengers) {

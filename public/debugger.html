@@ -9,7 +9,7 @@
   <body>
     <header>
       <div>
-        <p class="eyebrow">Milestone 3</p>
+        <p class="eyebrow">Milestone 5</p>
         <h1>Cabin Pressure Debugger</h1>
       </div>
       <div class="controls" aria-label="simulation controls">
@@ -24,6 +24,7 @@
           </select>
         </label>
         <button id="step" type="button">Step</button>
+        <button id="startCart" type="button">Start beverage cart</button>
         <button id="reset" type="button">Reset</button>
       </div>
     </header>
@@ -47,6 +48,11 @@
         <section>
           <h2>Lavatory queues</h2>
           <div id="lavatories"></div>
+        </section>
+
+        <section>
+          <h2>Beverage cart</h2>
+          <div id="beverageCart" class="selected-passenger"></div>
         </section>
 
         <section>

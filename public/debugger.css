@@ -131,6 +131,12 @@ main {
   background: rgba(14, 116, 144, 0.45);
 }
 
+.aisle.cart {
+  border-color: #facc15;
+  color: #fef9c3;
+  background: rgba(113, 63, 18, 0.55);
+}
+
 .seat {
   border: 2px solid transparent;
   color: #0f172a;
