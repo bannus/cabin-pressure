@@ -120,6 +120,14 @@ Expand the earlier debugger into a fuller playtest harness with debug buttons,
 config picker, seed input, richer inspection, and controls for carts,
 turbulence, and other later systems.
 
+Implemented features:
+
+- browser config picker with focused playtest presets
+- editable seed input for repeatable browser runs
+- debug actions for beverage cart, turbulence, baby diaper events, selected bladder state, and neediest-passenger assignment
+- selected-passenger inspection with movement, lavatory, blocker, diaper, and beverage details
+- playtest summary and passenger watchlist panels
+
 ## Milestone 9: Automated bot runs
 
 Add a consistent bot, batch simulation, result output, and config comparison.
