@@ -205,6 +205,121 @@ test("lavatory assignments queue and can reroute before use", () => {
   assert.equal(state.events.at(-2)?.type, "lavatoryRerouted");
 });
 
+test("assigned passenger moves through physical aisle cells", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 3,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 3 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 1,
+      useDurationSeconds: [5, 5]
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P003", "front");
+  assert.equal(state.passengers[2]?.aisleRow, 3);
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 3)?.passengerIds, ["P003"]);
+
+  tick(state, 1);
+  assert.equal(state.passengers[2]?.state, "WalkingToLavatory");
+  assert.equal(state.passengers[2]?.aisleRow, 2);
+
+  tick(state, 1);
+  assert.equal(state.passengers[2]?.aisleRow, 1);
+
+  tick(state, 1);
+  assert.equal(state.passengers[2]?.state, "UsingLavatory");
+  assert.equal(state.lavatories[0]?.occupantPassengerId, "P003");
+});
+
+test("lavatory queues expose physical queue positions", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 3,
+      seatLayout: ["A", "B", "C"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 9 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 1,
+      useDurationSeconds: [5, 5]
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P001", "front");
+  assignPassengerToLavatory(state, "P002", "front");
+  assignPassengerToLavatory(state, "P003", "front");
+  tick(state, 1);
+
+  assert.equal(state.passengers[0]?.state, "UsingLavatory");
+  assert.equal(state.passengers[1]?.state, "QueuedForLavatory");
+  assert.equal(state.passengers[1]?.queuePosition, 1);
+  assert.equal(state.passengers[1]?.aisleRow, 1);
+  assert.equal(state.passengers[2]?.queuePosition, 2);
+  assert.equal(state.passengers[2]?.aisleRow, 2);
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 1)?.passengerIds, ["P002"]);
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 2)?.passengerIds, ["P003"]);
+});
+
+test("passing conflicts slow aisle movement", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 2,
+      seatLayout: ["A", "B"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 4 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 3,
+      useDurationSeconds: [5, 5]
+    }
+  };
+  const state = createInitialState(config);
+
+  assignPassengerToLavatory(state, "P003", "front");
+  assignPassengerToLavatory(state, "P004", "front");
+  tick(state, 1);
+
+  assert.equal(state.passengers[2]?.aisleRow, 1);
+  assert.equal(state.passengers[3]?.aisleRow, 2);
+  assert.equal(state.passengers[3]?.movementStepSecondsRemaining, 2);
+});
+
 test("passengers can panic while walking to a lavatory", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
