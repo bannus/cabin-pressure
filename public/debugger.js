@@ -658,6 +658,10 @@ function updateBeverageCart(dt) {
     if (cart.movementStepSecondsRemaining === 0) {
       cart.currentAisleRow = nextCartAisleRow(cart);
       refreshAisleCells();
+      if (cart.currentAisleRow === cart.destinationAisleRow) {
+        startBeverageRowService(cart);
+        break;
+      }
     }
   }
 }

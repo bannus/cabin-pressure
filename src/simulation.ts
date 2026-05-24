@@ -188,6 +188,14 @@ export function startBeverageCart(state: SimulationState): SimulationState {
     return state;
   }
 
+  if (
+    requireBeverageCartConfig(state).serviceRows.some(
+      (row) => row < 1 || row > state.config.aircraft.rows
+    )
+  ) {
+    throw new Error("beverageCart.serviceRows must be aircraft row numbers");
+  }
+
   addEvent(
     state,
     "beverageCartStarted",
@@ -930,6 +938,10 @@ function updateBeverageCartProgress(state: SimulationState, dt: number): void {
 
     cart.currentAisleRow = nextCartAisleRow(cart);
     refreshAisleCells(state);
+    if (cart.currentAisleRow === cart.destinationAisleRow) {
+      startBeverageRowService(state, cart);
+      break;
+    }
   }
 }
 
@@ -1123,12 +1135,8 @@ function validateConfig(config: LevelConfig): void {
     if (config.beverageCart.serviceRows.length < 1) {
       throw new Error("beverageCart.serviceRows must contain rows");
     }
-    if (
-      config.beverageCart.serviceRows.some(
-        (row) => row < 1 || row > config.aircraft.rows || !Number.isInteger(row)
-      )
-    ) {
-      throw new Error("beverageCart.serviceRows must be aircraft row numbers");
+    if (config.beverageCart.serviceRows.some((row) => !Number.isInteger(row))) {
+      throw new Error("beverageCart.serviceRows must be row numbers");
     }
     if (
       config.beverageCart.rowServiceSeconds[0] < 0 ||
