@@ -34,7 +34,28 @@ CLI options:
 ```sh
 npm run simulate -- --seed 42 --duration 180 --summary-interval 15
 npm run simulate -- --assign P001:front --assign P002:rear
+npm run simulate -- --interactive --duration 240
 ```
+
+### Interactive CLI mode
+
+Run with `--interactive` to play a live round from the terminal:
+
+```sh
+npm run simulate -- --interactive
+```
+
+Available commands while running:
+
+- `assign PASSENGER_ID LAVATORY_ID`
+- `assign PASSENGER_ID:LAVATORY_ID`
+- `cart start`
+- `turbulence start`
+- `pause`
+- `resume`
+- `status`
+- `help`
+- `quit`
 
 The browser debugger starts at `http://localhost:4173` by default. Set `PORT`
 to use another port.
