@@ -257,7 +257,6 @@ function startNextQueuedPassenger(state: SimulationState, lavatory: Lavatory): v
 
   const nextPassengerId = lavatory.queue.shift();
   if (nextPassengerId === undefined) {
-    updateLavatoryQueuePositions(state, lavatory);
     return;
   }
 
