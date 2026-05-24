@@ -54,7 +54,13 @@ export function createInitialState(config: LevelConfig): SimulationState {
       standSecondsRemaining: 0,
       sitSecondsRemaining: 0,
       standCooldownSecondsRemaining: 0,
-      beverageRateMultiplier: 1
+      beverageRateMultiplier: 1,
+      babyDiaperSecondsRemaining:
+        archetype === "babyAttachedAdult" && config.babyDiaper !== undefined
+          ? babyDiaperEventSeconds(config, `first:${index + 1}`)
+          : undefined,
+      babyDiaperNeedsChange: false,
+      babyDiaperChangeCount: 0
     };
   });
 
@@ -309,6 +315,7 @@ export function bladderPercent(passenger: Passenger): number {
 function updateLavatoryProgress(state: SimulationState, dt: number): void {
   updateTurbulenceProgress(state, dt);
   updateBeverageCartProgress(state, dt);
+  updateBabyDiaperProgress(state, dt);
   updateSeatBlockerProgress(state, dt);
 
   for (const passenger of state.passengers) {
@@ -667,6 +674,21 @@ function finishLavatoryUse(state: SimulationState, lavatory: Lavatory, passenger
   passenger.rawBladder = 0;
   passenger.panicSeconds = 0;
   passenger.lavatorySecondsRemaining = 0;
+  if (passenger.babyDiaperNeedsChange) {
+    passenger.babyDiaperNeedsChange = false;
+    passenger.babyDiaperChangeCount += 1;
+    passenger.babyDiaperSecondsRemaining = babyDiaperEventSeconds(
+      state.config,
+      `repeat:${passenger.id}:${passenger.babyDiaperChangeCount}`
+    );
+    addEvent(
+      state,
+      "babyDiaperChanged",
+      `${passenger.id}'s baby diaper was changed in ${lavatory.id} lavatory.`,
+      passenger.id,
+      lavatory.id
+    );
+  }
   passenger.state = "ReturningToSeat";
   startAisleMovement(state, passenger, passenger.row, lavatory.row);
   addEvent(
@@ -725,6 +747,7 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
     passenger.rawBladder = passenger.capacity * state.config.loss.strikeRecoveryFillPercent;
     passenger.panicSeconds = 0;
     passenger.state =
+      passenger.babyDiaperNeedsChange ||
       state.config.loss.strikeRecoveryFillPercent >= state.config.bladder.requestThreshold
         ? "NeedsToGo"
         : "Seated";
@@ -754,6 +777,9 @@ function nextPassengerState(
   if (percent >= 1) {
     return "Panic";
   }
+  if (passenger.babyDiaperNeedsChange && passenger.state === "Seated") {
+    return "NeedsToGo";
+  }
   if (
     passenger.state === "WalkingToLavatory" ||
     passenger.state === "WaitingForSeatBlockers" ||
@@ -766,6 +792,9 @@ function nextPassengerState(
   }
   if (passenger.state === "Panic") {
     return "Panic";
+  }
+  if (passenger.babyDiaperNeedsChange) {
+    return "NeedsToGo";
   }
   if (percent >= state.config.bladder.requestThreshold) {
     return "NeedsToGo";
@@ -992,6 +1021,39 @@ function buildTurbulence(config: LevelConfig): Turbulence | undefined {
     activeSecondsRemaining: 0,
     hasAutoStarted: false
   };
+}
+
+function updateBabyDiaperProgress(state: SimulationState, dt: number): void {
+  if (state.config.babyDiaper === undefined) {
+    return;
+  }
+
+  for (const passenger of state.passengers) {
+    if (
+      passenger.archetype !== "babyAttachedAdult" ||
+      passenger.babyDiaperNeedsChange ||
+      passenger.babyDiaperSecondsRemaining === undefined
+    ) {
+      continue;
+    }
+
+    passenger.babyDiaperSecondsRemaining = Math.max(0, passenger.babyDiaperSecondsRemaining - dt);
+    if (passenger.babyDiaperSecondsRemaining > 0) {
+      continue;
+    }
+
+    passenger.babyDiaperNeedsChange = true;
+    passenger.babyDiaperSecondsRemaining = undefined;
+    if (passenger.state === "Seated") {
+      passenger.state = "NeedsToGo";
+    }
+    addEvent(
+      state,
+      "babyDiaperNeeded",
+      `${passenger.id}'s baby needs a diaper change.`,
+      passenger.id
+    );
+  }
 }
 
 function updateTurbulenceProgress(state: SimulationState, dt: number): void {
@@ -1414,8 +1476,25 @@ function validateConfig(config: LevelConfig): void {
       throw new Error("turbulence.autoStartSeconds must be non-negative");
     }
   }
+  if (config.babyDiaper !== undefined) {
+    validateNonNegativeRange(config.babyDiaper.firstEventSeconds, "babyDiaper.firstEventSeconds");
+    validateNonNegativeRange(config.babyDiaper.repeatEventSeconds, "babyDiaper.repeatEventSeconds");
+    if (
+      config.babyDiaper.changeDurationSeconds[0] <= 0 ||
+      config.babyDiaper.changeDurationSeconds[1] <= 0 ||
+      config.babyDiaper.changeDurationSeconds[0] > config.babyDiaper.changeDurationSeconds[1]
+    ) {
+      throw new Error("babyDiaper.changeDurationSeconds must be a positive range");
+    }
+  }
   if (config.loss.maxStrikes < 1) {
     throw new Error("loss.maxStrikes must be at least 1");
+  }
+
+  function validateNonNegativeRange(range: [number, number], name: string): void {
+    if (range[0] < 0 || range[1] < 0 || range[0] > range[1]) {
+      throw new Error(`${name} must be a non-negative range`);
+    }
   }
   if (config.loss.panicGraceSeconds < 0) {
     throw new Error("loss.panicGraceSeconds must be non-negative");
@@ -1445,7 +1524,10 @@ function toUrgency(passenger: Passenger): PassengerUrgency {
     standCooldownSecondsRemaining: passenger.standCooldownSecondsRemaining,
     beverageRateMultiplier: passenger.beverageRateMultiplier,
     beverageRateModifierStartSeconds: passenger.beverageRateModifierStartSeconds,
-    beverageRateModifierEndSeconds: passenger.beverageRateModifierEndSeconds
+    beverageRateModifierEndSeconds: passenger.beverageRateModifierEndSeconds,
+    babyDiaperNeedsChange: passenger.babyDiaperNeedsChange,
+    babyDiaperSecondsRemaining: passenger.babyDiaperSecondsRemaining,
+    babyDiaperChangeCount: passenger.babyDiaperChangeCount
   };
 }
 
@@ -1457,6 +1539,10 @@ function walkSecondsForPassenger(state: SimulationState, passenger: Passenger, l
 }
 
 function lavatoryUseSeconds(state: SimulationState, passenger: Passenger): number {
+  if (passenger.babyDiaperNeedsChange) {
+    return babyDiaperChangeSeconds(state, passenger);
+  }
+
   const [min, max] = state.config.lavatory.useDurationSeconds;
   if (min === max) {
     return min;
@@ -1464,6 +1550,36 @@ function lavatoryUseSeconds(state: SimulationState, passenger: Passenger): numbe
 
   const hash = hashString(`${state.config.seed}:${passenger.id}:${passenger.lavatoryVisitCount}`);
   return min + (max - min) * hash;
+}
+
+function babyDiaperChangeSeconds(state: SimulationState, passenger: Passenger): number {
+  const config = state.config.babyDiaper;
+  if (config === undefined) {
+    return lavatoryUseSeconds(state, { ...passenger, babyDiaperNeedsChange: false });
+  }
+
+  const [min, max] = config.changeDurationSeconds;
+  if (min === max) {
+    return min;
+  }
+
+  const hash = hashString(`${state.config.seed}:${passenger.id}:baby-diaper:${passenger.babyDiaperChangeCount}`);
+  return min + (max - min) * hash;
+}
+
+function babyDiaperEventSeconds(config: LevelConfig, key: string): number | undefined {
+  const diaperConfig = config.babyDiaper;
+  if (diaperConfig === undefined) {
+    return undefined;
+  }
+
+  const range = key.startsWith("first:") ? diaperConfig.firstEventSeconds : diaperConfig.repeatEventSeconds;
+  const [min, max] = range;
+  if (min === max) {
+    return min;
+  }
+
+  return min + (max - min) * hashString(`${config.seed}:baby-diaper:${key}`);
 }
 
 function hashString(value: string): number {

@@ -9,6 +9,7 @@ import {
   runSimulation,
   startBeverageCart,
   startTurbulence,
+  summarize,
   tick
 } from "../src/simulation";
 import type { LevelConfig } from "../src/types";
@@ -820,6 +821,90 @@ test("turbulence warning can pass without turning on the seat belt sign", () => 
   assert.equal(state.events.at(-1)?.type, "seatBeltSignSkipped");
   assignPassengerToLavatory(state, "P001", "front");
   assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
+});
+
+test("baby-attached adults get diaper events with long lavatory tasks", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 60,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 1 }]
+    },
+    passengerMix: { babyAttachedAdult: 1 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0, 0],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 0,
+      useDurationSeconds: [2, 2]
+    },
+    babyDiaper: {
+      firstEventSeconds: [1, 1],
+      repeatEventSeconds: [20, 20],
+      changeDurationSeconds: [7, 7]
+    },
+    seatBlockers: instantSeatBlockers
+  };
+  const state = createInitialState(config);
+
+  tick(state, 1);
+  assert.equal(state.passengers[0]?.babyDiaperNeedsChange, true);
+  assert.equal(state.passengers[0]?.state, "NeedsToGo");
+  assert.equal(state.events.at(-1)?.type, "babyDiaperNeeded");
+
+  assignPassengerToLavatory(state, "P001", "front");
+  tick(state, 0.1);
+  assert.equal(state.passengers[0]?.state, "UsingLavatory");
+  assert.equal(state.passengers[0]?.lavatorySecondsRemaining, 7);
+
+  tick(state, 7);
+  assert.equal(state.passengers[0]?.babyDiaperNeedsChange, false);
+  assert.equal(state.passengers[0]?.babyDiaperChangeCount, 1);
+  assert.equal(state.passengers[0]?.babyDiaperSecondsRemaining, 20);
+  assert.deepEqual(
+    state.events
+      .filter((event) => event.type === "babyDiaperNeeded" || event.type === "babyDiaperChanged")
+      .map((event) => event.type),
+    ["babyDiaperNeeded", "babyDiaperChanged"]
+  );
+});
+
+test("baby diaper indicators are exposed in urgency summaries", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 10,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 1 }]
+    },
+    passengerMix: { babyAttachedAdult: 1 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0, 0],
+      baseFillPerSecond: 0
+    },
+    babyDiaper: {
+      firstEventSeconds: [1, 1],
+      repeatEventSeconds: [20, 20],
+      changeDurationSeconds: [7, 7]
+    }
+  };
+  const state = createInitialState(config);
+
+  tick(state, 1);
+  const urgency = summarize(state).mostUrgent[0];
+
+  assert.equal(state.passengers[0]?.babyDiaperNeedsChange, true);
+  assert.equal(urgency?.babyDiaperNeedsChange, true);
+  assert.equal(urgency?.babyDiaperSecondsRemaining, undefined);
 });
 
 test("CLI rejects malformed lavatory assignments", () => {
