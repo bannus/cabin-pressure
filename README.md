@@ -72,6 +72,7 @@ The original prototype brief has been split into focused documents:
 - [Systems and rules](docs/design/04-systems-and-rules.md)
 - [Milestone roadmap](docs/design/05-milestone-roadmap.md)
 - [Level configuration](docs/design/06-level-configuration.md)
+- [Initial design](docs/design/initial%20design.md)
 
 ## GitHub Pages deployment
 

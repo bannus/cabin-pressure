@@ -16,3 +16,4 @@ game loop proves fun.
 4. [Systems and rules](04-systems-and-rules.md)
 5. [Milestone roadmap](05-milestone-roadmap.md)
 6. [Level configuration](06-level-configuration.md)
+7. [Initial design](initial%20design.md)
