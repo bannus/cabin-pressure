@@ -176,6 +176,12 @@ The strike timer is now decoupled from the visible `Panic` state:
   passenger has an "accident", their bladder is relieved, and any trip is abandoned.
 - Only idle (seated) desperate passengers visibly enter the `Panic` state.
 
-Note: this fix also revealed that `mediumCabin` is currently overtuned — the previous
-"perfect bot wins" result was an artifact of the bug (strikes were impossible), so
-the level needs rebalancing before it is a useful fun benchmark.
+Note: this fix also revealed that `mediumCabin` was overtuned — the previous
+"perfect bot wins" result was an artifact of the bug (strikes were impossible).
+After the fix, the level was rebalanced (slower bladder fill `100/500`, faster
+lavatory turnover `useDurationSeconds [6, 11]`, keeping the realistic front + two
+rear lavatory layout). The greedy bot now wins ~80%, naive strategies lose, and
+the level is winnable at ~10 APM — important because the game targets mobile
+players who scroll between cabin sections and therefore have a low effective APM.
+The difficulty proved to be a sharp cliff (small fill-rate changes flip win rate
+between ~100% and ~0%), so future tuning should change one lever at a time.

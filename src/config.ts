@@ -85,7 +85,7 @@ export const mediumCabin: LevelConfig = {
   },
   bladder: {
     initialFillRange: [0.0, 0.3],
-    baseFillPerSecond: 100 / 350,
+    baseFillPerSecond: 100 / 500,
     requestThreshold: 0.7,
     desperateThreshold: 0.9
   },
@@ -93,7 +93,7 @@ export const mediumCabin: LevelConfig = {
     minimumWalkSeconds: 2,
     walkSecondsPerRow: 0.75,
     passingSlowdownMultiplier: 2,
-    useDurationSeconds: [8, 14]
+    useDurationSeconds: [6, 11]
   },
   seatBlockers: {
     standSeconds: 1,
