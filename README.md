@@ -6,7 +6,7 @@ escalating readable chaos.
 
 ## Current milestone
 
-Milestones 2, 2.5, 3, 4, 5, 6, 7, and 8 are implemented:
+Milestones 2, 2.5, 3, 4, 5, 6, 7, 8, and 9 are implemented:
 
 - deterministic seeded passenger generation
 - bladder fill by passenger archetype
@@ -18,6 +18,7 @@ Milestones 2, 2.5, 3, 4, 5, 6, 7, and 8 are implemented:
 - turbulence warnings, possible seat belt sign, forced passenger returns, and movement lockout
 - baby-attached adult diaper events, long lavatory changes, and debugger indicators
 - expanded browser playtest UI with preset configs, seed input, debug actions, summaries, and watchlists
+- automated bot runs with batch simulation, aggregate metrics, and config comparison
 - CLI simulation output with optional lavatory assignments
 - browser debugger for cabin readability and lavatory queue playtesting
 
@@ -27,6 +28,7 @@ Milestones 2, 2.5, 3, 4, 5, 6, 7, and 8 are implemented:
 npm run build
 npm test
 npm run simulate
+npm run bot
 npm run debugger
 ```
 
@@ -37,6 +39,19 @@ npm run simulate -- --seed 42 --duration 180 --summary-interval 15
 npm run simulate -- --assign P001:front --assign P002:rear
 npm run simulate -- --interactive --duration 240
 ```
+
+### Automated bot runs
+
+Run a deterministic bot across many seeds and compare configs:
+
+```sh
+npm run bot
+npm run bot -- --seeds 50 --base-seed 1000 --duration 240
+```
+
+The bot assigns the neediest passengers to load-balanced nearest lavatories each
+tick, then prints win rates and averages for the baseline cabin and a harder
+single-lavatory variant.
 
 ### Interactive CLI mode
 

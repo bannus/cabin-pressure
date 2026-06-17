@@ -4,6 +4,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { tinyReadableCabin } from "../src/config";
 import { estimateLavatoryDemand } from "../src/level-metrics";
+import { runBotSimulation, botStep } from "../src/bot";
+import { compareConfigs, defaultSeeds, runBatch } from "../src/batch";
 import {
   assignPassengerToLavatory,
   createInitialState,
@@ -1027,6 +1029,90 @@ test("CLI interactive mode accepts live commands", async () => {
   assert.equal(exitCode, 0);
   assert.match(stdout, /Result: RUNNING with 0 strike\(s\)\. \(quit early\)/);
   assert.equal(stderr.trim(), "");
+});
+
+test("bot wins the readable cabin deterministically", () => {
+  const first = runBotSimulation(tinyReadableCabin);
+  const second = runBotSimulation(tinyReadableCabin);
+
+  assert.equal(first.status, "won");
+  assert.deepEqual(first, second);
+  assert.ok(first.assignmentsMade > 0);
+  assert.equal(first.finalTime, tinyReadableCabin.durationSeconds);
+});
+
+test("botStep assigns passengers that need a lavatory", () => {
+  const state = createInitialState(tinyReadableCabin);
+  const needyBefore = state.passengers.filter(
+    (passenger) => passenger.state === "NeedsToGo" && passenger.assignedLavatoryId === undefined
+  ).length;
+
+  const assignments = botStep(state);
+
+  assert.equal(assignments, needyBefore);
+  for (const passenger of state.passengers) {
+    if (passenger.state === "NeedsToGo") {
+      continue;
+    }
+    if (passenger.assignedLavatoryId !== undefined) {
+      assert.ok(state.lavatories.some((lavatory) => lavatory.id === passenger.assignedLavatoryId));
+    }
+  }
+});
+
+test("batch aggregation reports per-config win statistics", () => {
+  const seeds = defaultSeeds(8, 100);
+  const summary = runBatch(tinyReadableCabin, { seeds });
+
+  assert.equal(summary.runCount, 8);
+  assert.equal(summary.wins + summary.losses, summary.runCount);
+  assert.equal(summary.winRate, summary.wins / summary.runCount);
+  assert.equal(summary.runs.length, 8);
+  assert.ok(summary.averageBladderPercent >= 0 && summary.averageBladderPercent <= 1);
+});
+
+test("compareConfigs returns one summary per labeled config", () => {
+  const seeds = defaultSeeds(4, 7);
+  const harder = {
+    ...tinyReadableCabin,
+    id: "single-lavatory",
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      lavatories: tinyReadableCabin.aircraft.lavatories.slice(-1)
+    }
+  };
+
+  const comparison = compareConfigs(
+    [
+      { label: "baseline", config: tinyReadableCabin },
+      { label: "single-lav", config: harder }
+    ],
+    { seeds }
+  );
+
+  assert.equal(comparison.length, 2);
+  assert.deepEqual(
+    comparison.map((entry) => entry.label),
+    ["baseline", "single-lav"]
+  );
+  assert.equal(comparison[1].summary.configId, "single-lavatory");
+  for (const entry of comparison) {
+    assert.equal(entry.summary.runCount, 4);
+  }
+});
+
+test("bot CLI prints a config comparison", () => {
+  const cliPath = join(__dirname, "../src/bot-cli.js");
+  const result = spawnSync(process.execPath, [cliPath, "--seeds", "3"], {
+    encoding: "utf8",
+    timeout: 10000
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /automated bot runs/);
+  assert.match(result.stdout, /\[baseline\]/);
+  assert.match(result.stdout, /\[single-lav\]/);
+  assert.match(result.stdout, /winRate=/);
 });
 
 async function waitForOutput(

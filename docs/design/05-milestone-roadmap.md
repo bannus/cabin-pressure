@@ -131,3 +131,11 @@ Implemented features:
 ## Milestone 9: Automated bot runs
 
 Add a consistent bot, batch simulation, result output, and config comparison.
+
+Implemented features:
+
+- deterministic bot controller that assigns the neediest passengers to load-balanced nearest lavatories each tick
+- `runBotSimulation` produces per-run metrics (status, strikes, assignments, panic events, lavatory visits, queue depth)
+- `runBatch` aggregates many seeded runs into win rate and averages
+- `compareConfigs` runs the same seed set across labeled configs for balance comparison
+- `npm run bot` CLI prints a baseline-vs-variant comparison table
