@@ -8,12 +8,14 @@ export interface BatchOptions {
   dt?: number;
   strategy?: BotStrategy;
   startBeverageCart?: boolean;
+  actionsPerMinute?: number;
 }
 
 export interface BatchSummary {
   configId: string;
   configName: string;
   strategy: string;
+  actionsPerMinute: number;
   runCount: number;
   wins: number;
   losses: number;
@@ -49,6 +51,11 @@ export interface SweepCell {
   summary: BatchSummary;
 }
 
+export interface ApmSweepCell {
+  actionsPerMinute: number;
+  summary: BatchSummary;
+}
+
 export function defaultSeeds(count: number, baseSeed: number): number[] {
   if (!Number.isInteger(count) || count <= 0) {
     throw new Error("seed count must be a positive integer");
@@ -62,7 +69,8 @@ export function runBatch(config: LevelConfig, options: BatchOptions = {}): Batch
   const runOptions: BotOptions = {
     dt: options.dt,
     strategy,
-    startBeverageCart: options.startBeverageCart
+    startBeverageCart: options.startBeverageCart,
+    actionsPerMinute: options.actionsPerMinute
   };
 
   const runs = seeds.map((seed) =>
@@ -100,6 +108,17 @@ export function sweepConfigs(
   return cells;
 }
 
+export function sweepActionsPerMinute(
+  config: LevelConfig,
+  apmValues: number[],
+  options: BatchOptions = {}
+): ApmSweepCell[] {
+  return apmValues.map((actionsPerMinute) => ({
+    actionsPerMinute,
+    summary: runBatch(config, { ...options, actionsPerMinute })
+  }));
+}
+
 function average(values: number[]): number {
   if (values.length === 0) {
     return 0;
@@ -130,6 +149,7 @@ function summarizeRuns(
     configId: config.id,
     configName: config.name,
     strategy: strategy.name,
+    actionsPerMinute: runs[0]?.actionsPerMinute ?? Number.POSITIVE_INFINITY,
     runCount,
     wins,
     losses,

@@ -64,7 +64,7 @@ npm run evaluate
 npm run evaluate -- --seeds 30 --duration 360 --dt 0.1
 ```
 
-It reports three things:
+It reports four things:
 
 - **Decision depth** — win-rate gap between a smart `greedy` bot and naive
   `panic`/`fixed-lavatory` bots. A large gap means assignment decisions matter.
@@ -72,6 +72,10 @@ It reports three things:
   demand spikiness, and cross-seed variance (repetitiveness).
 - **Difficulty sweep** — win rate across lavatory-supply variants, to find a
   configuration where good play wins ~60–80% and clearly beats naive play.
+- **Actions-per-minute required** — win rate when the bot is capped to a human-like
+  number of assignments per minute, to estimate how twitchy the level is. A level
+  that needs very high APM (or that even an unlimited-APM bot cannot win) is not
+  yet tuned for a human player.
 
 ### Interactive CLI mode
 

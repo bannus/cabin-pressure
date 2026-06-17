@@ -29,6 +29,11 @@ export interface BotOptions {
   dt?: number;
   strategy?: BotStrategy;
   startBeverageCart?: boolean;
+  /**
+   * Cap on how many lavatory assignments the bot may make per minute, modelling a
+   * human's limited actions-per-minute. Undefined (or non-finite) means unlimited.
+   */
+  actionsPerMinute?: number;
 }
 
 export interface BotRunResult {
@@ -36,6 +41,7 @@ export interface BotRunResult {
   configName: string;
   strategy: string;
   seed: number;
+  actionsPerMinute: number;
   durationSeconds: number;
   finalTime: number;
   status: SimulationStatus;
@@ -203,11 +209,34 @@ export function applyDecisions(state: SimulationState, decisions: AssignmentDeci
   return assignmentsMade;
 }
 
-export function botStep(state: SimulationState, strategy: BotStrategy = greedyStrategy): number {
-  if (state.status !== "running") {
+export function botStep(
+  state: SimulationState,
+  strategy: BotStrategy = greedyStrategy,
+  maxActions = Number.POSITIVE_INFINITY
+): number {
+  if (state.status !== "running" || maxActions <= 0) {
     return 0;
   }
-  return applyDecisions(state, strategy.decide(state));
+  const decisions = strategy.decide(state);
+  if (!Number.isFinite(maxActions) || decisions.length <= maxActions) {
+    return applyDecisions(state, decisions);
+  }
+
+  // Under an actions-per-minute cap, spend the limited budget on the most urgent
+  // passengers first so the cap models a human triaging the worst cases.
+  const byId = new Map(state.passengers.map((passenger) => [passenger.id, passenger]));
+  const prioritized = [...decisions].sort((left, right) => {
+    const leftPassenger = byId.get(left.passengerId);
+    const rightPassenger = byId.get(right.passengerId);
+    const delta =
+      (rightPassenger ? urgencyScore(rightPassenger) : 0) -
+      (leftPassenger ? urgencyScore(leftPassenger) : 0);
+    if (delta !== 0) {
+      return delta;
+    }
+    return left.passengerId.localeCompare(right.passengerId);
+  });
+  return applyDecisions(state, prioritized.slice(0, Math.floor(maxActions)));
 }
 
 interface MetricAccumulator {
@@ -255,6 +284,8 @@ function sampleMetrics(state: SimulationState, dt: number, metrics: MetricAccumu
 export function runBotSimulation(config: LevelConfig, options: BotOptions = {}): BotRunResult {
   const dt = options.dt ?? DEFAULT_DT;
   const strategy = options.strategy ?? greedyStrategy;
+  const apm = options.actionsPerMinute;
+  const apmLimited = apm !== undefined && Number.isFinite(apm);
   const state = createInitialState(config);
 
   if (options.startBeverageCart && state.beverageCart !== undefined) {
@@ -272,18 +303,28 @@ export function runBotSimulation(config: LevelConfig, options: BotOptions = {}):
     totalLavatorySeconds: 0
   };
 
+  let actionBudget = 0;
+
   while (state.status === "running") {
-    metrics.assignmentsMade += botStep(state, strategy);
+    if (apmLimited) {
+      actionBudget += ((apm as number) * dt) / 60;
+      const made = botStep(state, strategy, Math.floor(actionBudget));
+      actionBudget -= made;
+      metrics.assignmentsMade += made;
+    } else {
+      metrics.assignmentsMade += botStep(state, strategy);
+    }
     sampleMetrics(state, dt, metrics);
     tick(state, dt);
   }
 
-  return buildResult(config, strategy, state, metrics);
+  return buildResult(config, strategy, apmLimited ? (apm as number) : Number.POSITIVE_INFINITY, state, metrics);
 }
 
 function buildResult(
   config: LevelConfig,
   strategy: BotStrategy,
+  actionsPerMinute: number,
   state: SimulationState,
   metrics: MetricAccumulator
 ): BotRunResult {
@@ -315,6 +356,7 @@ function buildResult(
     configName: config.name,
     strategy: strategy.name,
     seed: config.seed,
+    actionsPerMinute,
     durationSeconds: config.durationSeconds,
     finalTime: state.time,
     status: state.status,

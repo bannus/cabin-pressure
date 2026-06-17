@@ -11,7 +11,7 @@ import {
   panicStrategy,
   fixedLavatoryStrategy
 } from "../src/bot";
-import { compareConfigs, defaultSeeds, runBatch, sweepConfigs } from "../src/batch";
+import { compareConfigs, defaultSeeds, runBatch, sweepConfigs, sweepActionsPerMinute } from "../src/batch";
 import {
   assignPassengerToLavatory,
   createInitialState,
@@ -1194,6 +1194,55 @@ test("sweepConfigs returns one cell per config-by-strategy pair", () => {
     cells.map((cell) => `${cell.label}/${cell.strategy}`),
     ["two/greedy", "two/fixed-lavatory", "three/greedy", "three/fixed-lavatory"]
   );
+});
+
+test("an APM cap limits how many assignments the bot makes per minute", () => {
+  // Start nearly everyone just below the request threshold so a large burst of
+  // demand appears within seconds, making the assignment cap clearly bite.
+  const config: LevelConfig = {
+    ...mediumCabin,
+    durationSeconds: 120,
+    bladder: { ...mediumCabin.bladder, initialFillRange: [0.65, 0.69] }
+  };
+
+  const unlimited = runBotSimulation(config, { dt: 0.5, startBeverageCart: true });
+  const capped = runBotSimulation(config, {
+    dt: 0.5,
+    startBeverageCart: true,
+    actionsPerMinute: 10
+  });
+
+  assert.equal(unlimited.actionsPerMinute, Number.POSITIVE_INFINITY);
+  assert.equal(capped.actionsPerMinute, 10);
+  assert.ok(
+    capped.assignmentsMade < unlimited.assignmentsMade,
+    `expected capped ${capped.assignmentsMade} < unlimited ${unlimited.assignmentsMade}`
+  );
+
+  // 10 assignments/minute over the elapsed time is the budget, plus at most one
+  // assignment of rounding slack.
+  const elapsedMinutes = capped.finalTime / 60;
+  assert.ok(capped.assignmentsMade <= Math.ceil(10 * elapsedMinutes) + 1);
+});
+
+test("sweepActionsPerMinute returns one cell per APM value with that cap recorded", () => {
+  const seeds = defaultSeeds(2, 13);
+  const config = { ...mediumCabin, durationSeconds: 80 };
+
+  const cells = sweepActionsPerMinute(config, [15, 30, 60], {
+    seeds,
+    dt: 0.5,
+    startBeverageCart: true
+  });
+
+  assert.deepEqual(
+    cells.map((cell) => cell.actionsPerMinute),
+    [15, 30, 60]
+  );
+  for (const cell of cells) {
+    assert.equal(cell.summary.actionsPerMinute, cell.actionsPerMinute);
+    assert.equal(cell.summary.runCount, 2);
+  }
 });
 
 async function waitForOutput(

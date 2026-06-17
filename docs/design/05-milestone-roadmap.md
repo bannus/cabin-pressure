@@ -151,7 +151,11 @@ Implemented features:
 - pluggable bot strategies (`greedyStrategy`, `panicStrategy`, `fixedLavatoryStrategy`) to measure decision depth via the win-rate gap between smart and naive play
 - fun metrics per run: peak/mean concurrent demand, demand spikiness, lavatory utilization, busy fraction, and cross-seed variance (repetitiveness)
 - `sweepConfigs` runs config variants across strategies for difficulty sweeps
-- `npm run evaluate` reports decision depth, fun metrics, and a lavatory-supply difficulty sweep with interpretation hints
+- `sweepActionsPerMinute` runs the bot under a range of actions-per-minute caps so
+  the harness can report how twitchy a level is (the lowest APM that still wins)
+- `BotOptions.actionsPerMinute` caps how many assignments the bot may issue per
+  minute via a carried action budget, spending it on the most urgent passengers first
+- `npm run evaluate` reports decision depth, fun metrics, a lavatory-supply difficulty sweep, and the actions-per-minute required, all with interpretation hints
 - simulation hot-path optimization (single-pass aisle-cell rebuild and stable passenger object shape) for ~28x faster large-cabin runs
 
 ### Desperation / strike behavior fix

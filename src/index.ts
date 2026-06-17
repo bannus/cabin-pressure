@@ -12,8 +12,9 @@ export {
   BOT_STRATEGIES
 } from "./bot";
 export type { AssignmentDecision, BotOptions, BotRunResult, BotStrategy } from "./bot";
-export { compareConfigs, defaultSeeds, runBatch, sweepConfigs } from "./batch";
+export { compareConfigs, defaultSeeds, runBatch, sweepConfigs, sweepActionsPerMinute } from "./batch";
 export type {
+  ApmSweepCell,
   BatchOptions,
   BatchSummary,
   ComparisonResult,

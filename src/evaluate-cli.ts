@@ -5,7 +5,7 @@ import {
   panicStrategy
 } from "./bot";
 import type { BotStrategy } from "./bot";
-import { defaultSeeds, runBatch, sweepConfigs } from "./batch";
+import { defaultSeeds, runBatch, sweepConfigs, sweepActionsPerMinute } from "./batch";
 import type { BatchOptions, BatchSummary, NamedConfig } from "./batch";
 import type { LavatoryConfig, LevelConfig } from "./types";
 
@@ -38,6 +38,51 @@ function main(): void {
   const greedySummary = reportStrategyDepth(baseline, batchOptions);
   reportFunMetrics(greedySummary);
   reportDifficultySweep(baseline, batchOptions);
+  reportApmRequired(baseline, batchOptions);
+}
+
+const APM_LADDER = [10, 20, 30, 45, 60, 90, 120];
+
+function reportApmRequired(config: LevelConfig, options: BatchOptions): void {
+  console.log("== Actions-per-minute required (greedy bot, APM-capped) ==");
+  console.log("  APM caps how many lavatory assignments the player can issue per minute.");
+
+  const cells = sweepActionsPerMinute(config, APM_LADDER, options);
+  const unlimited = runBatch(config, options);
+
+  for (const cell of cells) {
+    console.log(
+      `  ${String(cell.actionsPerMinute).padStart(4)} APM  ` +
+        `winRate=${formatPercent(cell.summary.winRate)} ` +
+        `avgStrikes=${cell.summary.averageStrikes.toFixed(2)} ` +
+        `avgAssigns=${cell.summary.averageAssignments.toFixed(1)}`
+    );
+  }
+  console.log(
+    `   inf APM  winRate=${formatPercent(unlimited.winRate)} ` +
+      `avgStrikes=${unlimited.averageStrikes.toFixed(2)} ` +
+      `avgAssigns=${unlimited.averageAssignments.toFixed(1)} (no cap)`
+  );
+
+  const target = 0.6;
+  const minApmToWin = cells.find((cell) => cell.summary.winRate >= target);
+  if (unlimited.winRate < target) {
+    console.log(
+      `  -> even an unlimited-APM bot wins only ${formatPercent(unlimited.winRate)}; ` +
+        "rebalance to be winnable before reading the APM requirement."
+    );
+  } else if (minApmToWin === undefined) {
+    console.log(
+      `  -> needs more than ${APM_LADDER[APM_LADDER.length - 1]} APM to win >=` +
+        `${formatPercent(target)} (likely too twitchy for a human).`
+    );
+  } else {
+    console.log(
+      `  -> about ${minApmToWin.actionsPerMinute} APM is needed to win >=${formatPercent(target)} ` +
+        "(lower is more human-achievable)."
+    );
+  }
+  console.log("");
 }
 
 function reportStrategyDepth(config: LevelConfig, options: BatchOptions): BatchSummary {
