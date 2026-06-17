@@ -37,6 +37,9 @@ export function defaultSeeds(count: number, baseSeed: number): number[] {
   if (!Number.isInteger(count) || count <= 0) {
     throw new Error("seed count must be a positive integer");
   }
+  if (!Number.isFinite(baseSeed) || !Number.isInteger(baseSeed)) {
+    throw new Error("baseSeed must be a finite integer");
+  }
   return Array.from({ length: count }, (_unused, index) => baseSeed + index);
 }
 

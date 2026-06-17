@@ -112,11 +112,10 @@ export function botStep(state: SimulationState): number {
     try {
       assignPassengerToLavatory(state, passenger.id, lavatory.id);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("seat belt sign")) {
+      if (state.turbulence?.phase === "active") {
         return assignmentsMade;
       }
-      continue;
+      throw error;
     }
     tentative.set(lavatory.id, (tentative.get(lavatory.id) ?? 0) + 1);
     assignmentsMade += 1;

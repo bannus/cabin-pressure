@@ -81,7 +81,11 @@ function parseArgs(args: string[]): BotCliOptions {
       parsed.seeds = parsePositiveInteger(value, "--seeds");
       index += 1;
     } else if (arg === "--base-seed" && value !== undefined) {
-      parsed.baseSeed = parseFiniteNumber(value, "--base-seed");
+      const baseSeed = parseFiniteNumber(value, "--base-seed");
+      if (!Number.isInteger(baseSeed)) {
+        throw new Error("--base-seed must be an integer");
+      }
+      parsed.baseSeed = baseSeed;
       index += 1;
     } else if (arg === "--duration" && value !== undefined) {
       parsed.duration = parsePositiveFiniteNumber(value, "--duration");
