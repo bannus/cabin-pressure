@@ -717,6 +717,26 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
     dt;
 
   const percent = bladderPercent(passenger);
+  const isDesperate = percent >= state.config.bladder.desperateThreshold;
+
+  // The desperation timer runs whenever a passenger is over the desperate
+  // threshold, regardless of whether they are still seated or already walking to
+  // or queued for a lavatory. A passenger who is making progress keeps their trip
+  // and their place in line, but a too-slow queue can still cause a strike.
+  if (isDesperate) {
+    if (passenger.panicSeconds === 0) {
+      addEvent(
+        state,
+        "panic",
+        `${passenger.id} at ${passenger.row}${passenger.seat} is desperate.`,
+        passenger.id
+      );
+    }
+    passenger.panicSeconds += dt;
+  } else {
+    passenger.panicSeconds = 0;
+  }
+
   const previousState = passenger.state;
   const nextState = nextPassengerState(state, passenger, percent);
 
@@ -730,33 +750,19 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
         passenger.id
       );
     }
-    if (nextState === "Panic") {
-      abandonLavatoryAssignment(state, passenger);
-      passenger.panicSeconds = 0;
-      addEvent(
-        state,
-        "panic",
-        `${passenger.id} at ${passenger.row}${passenger.seat} is in panic.`,
-        passenger.id
-      );
-    }
   }
 
-  if (passenger.state === "Panic") {
-    passenger.panicSeconds += dt;
-  }
-
-  if (
-    passenger.state === "Panic" &&
-    passenger.panicSeconds >= state.config.loss.panicGraceSeconds
-  ) {
+  if (isDesperate && passenger.panicSeconds >= state.config.loss.panicGraceSeconds) {
     state.strikes += 1;
     passenger.strikeCount += 1;
     passenger.rawBladder = passenger.capacity * state.config.loss.strikeRecoveryFillPercent;
     passenger.panicSeconds = 0;
+    // After the accident the passenger no longer needs the lavatory, so any
+    // in-progress trip is abandoned and they settle based on their relieved level.
+    abandonLavatoryAssignment(state, passenger);
     passenger.state =
       passenger.babyDiaperNeedsChange ||
-      state.config.loss.strikeRecoveryFillPercent >= state.config.bladder.requestThreshold
+      bladderPercent(passenger) >= state.config.bladder.requestThreshold
         ? "NeedsToGo"
         : "Seated";
 
@@ -782,23 +788,25 @@ function nextPassengerState(
   passenger: Passenger,
   percent: number
 ): PassengerState {
-  if (percent >= 1) {
-    return "Panic";
-  }
-  if (passenger.babyDiaperNeedsChange && passenger.state === "Seated") {
-    return "NeedsToGo";
-  }
+  // Preserve states that represent an in-progress lavatory trip. A passenger who
+  // is walking, queued, or otherwise committed keeps their trip even once they
+  // grow desperate; the strike timer (handled in updatePassengerBladder) is what
+  // penalizes a trip that takes too long, not a forced switch into Panic.
   if (
     passenger.state === "WalkingToLavatory" ||
     passenger.state === "WaitingForSeatBlockers" ||
     passenger.state === "Standing" ||
     passenger.state === "QueuedForLavatory" ||
     passenger.state === "ReturningToSeat" ||
-    passenger.state === "Sitting"
+    passenger.state === "Sitting" ||
+    passenger.state === "UsingLavatory"
   ) {
     return passenger.state;
   }
-  if (passenger.state === "Panic") {
+
+  // Idle states (Seated, NeedsToGo, Panic): a desperate passenger who is not on
+  // their way anywhere visibly panics, otherwise they settle by bladder level.
+  if (percent >= state.config.bladder.desperateThreshold) {
     return "Panic";
   }
   if (passenger.babyDiaperNeedsChange) {

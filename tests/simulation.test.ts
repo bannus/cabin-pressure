@@ -425,7 +425,7 @@ test("passing conflicts slow aisle movement", () => {
   assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 3);
 });
 
-test("passengers can panic while walking to a lavatory", () => {
+test("desperate passengers keep walking to a lavatory and can still strike", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
     durationSeconds: 10,
@@ -446,20 +446,33 @@ test("passengers can panic while walking to a lavatory", () => {
       walkSecondsPerRow: 0,
       useDurationSeconds: [2, 2]
     },
-    seatBlockers: instantSeatBlockers
+    seatBlockers: instantSeatBlockers,
+    loss: {
+      panicGraceSeconds: 1,
+      maxStrikes: 5,
+      strikeRecoveryFillPercent: 0.65
+    }
   };
   const state = createInitialState(config);
 
   assignPassengerToLavatory(state, "P001", "front");
   tick(state, 0.25);
 
-  assert.equal(state.passengers[0]?.state, "Panic");
+  // A desperate passenger keeps their trip instead of abandoning it.
+  assert.equal(state.passengers[0]?.state, "WalkingToLavatory");
+  assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
+  assert.equal(state.passengers[0]?.panicSeconds, 0.25);
+
+  // The five-second walk cannot finish before the one-second grace, so a strike
+  // fires while the passenger is still in transit.
+  tick(state, 1);
+
+  assert.equal(state.passengers[0]?.strikeCount, 1);
   assert.equal(state.passengers[0]?.assignedLavatoryId, undefined);
-  assert.equal(state.passengers[0]?.movementSecondsRemaining, 0);
-  assert.equal(state.events.at(-1)?.type, "panic");
+  assert.equal(state.lavatories[0]?.queue.includes("P001"), false);
 });
 
-test("passengers can panic while queued for a lavatory", () => {
+test("desperate passengers keep their place in the lavatory queue", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
     durationSeconds: 10,
@@ -480,7 +493,11 @@ test("passengers can panic while queued for a lavatory", () => {
       walkSecondsPerRow: 0,
       useDurationSeconds: [5, 5]
     },
-    seatBlockers: instantSeatBlockers
+    seatBlockers: instantSeatBlockers,
+    loss: {
+      ...tinyReadableCabin.loss,
+      panicGraceSeconds: 8
+    }
   };
   const state = createInitialState(config);
 
@@ -488,10 +505,12 @@ test("passengers can panic while queued for a lavatory", () => {
   assignPassengerToLavatory(state, "P002", "front");
   tick(state, 1);
 
-  assert.equal(state.passengers[1]?.state, "Panic");
-  assert.equal(state.passengers[1]?.assignedLavatoryId, undefined);
-  assert.deepEqual(state.lavatories[0]?.queue, []);
-  assert.equal(state.events.at(-1)?.type, "panic");
+  // The queued passenger is desperate but keeps their assignment and queue spot
+  // rather than abandoning it.
+  assert.equal(state.passengers[1]?.state, "QueuedForLavatory");
+  assert.equal(state.passengers[1]?.assignedLavatoryId, "front");
+  assert.deepEqual(state.lavatories[0]?.queue, ["P002"]);
+  assert.ok((state.passengers[1]?.panicSeconds ?? 0) > 0);
 });
 
 test("inner-seat passengers require blockers to stand before exiting", () => {

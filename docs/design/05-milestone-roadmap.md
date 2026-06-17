@@ -153,3 +153,25 @@ Implemented features:
 - `sweepConfigs` runs config variants across strategies for difficulty sweeps
 - `npm run evaluate` reports decision depth, fun metrics, and a lavatory-supply difficulty sweep with interpretation hints
 - simulation hot-path optimization (single-pass aisle-cell rebuild and stable passenger object shape) for ~28x faster large-cabin runs
+
+### Desperation / strike behavior fix
+
+While building the harness, the `panic` strategy surfaced a bug: a passenger who hit
+100% bladder while walking to or queued for a lavatory was forced into the `Panic`
+state, which abandoned their in-progress trip. A bot re-assigning them reset the
+panic timer every tick, so they thrashed forever and never actually struck.
+
+The strike timer is now decoupled from the visible `Panic` state:
+
+- `desperateThreshold` drives a desperation timer (`panicSeconds`) that accumulates
+  whenever a passenger is over the threshold, regardless of whether they are seated,
+  walking, or queued. It now has a real gameplay purpose beyond validation.
+- In-progress trips (walking, queued, returning) are preserved even when the
+  passenger grows desperate — they keep their place in line.
+- A strike fires only when `panicSeconds >= panicGraceSeconds`, after which the
+  passenger has an "accident", their bladder is relieved, and any trip is abandoned.
+- Only idle (seated) desperate passengers visibly enter the `Panic` state.
+
+Note: this fix also revealed that `mediumCabin` is currently overtuned — the previous
+"perfect bot wins" result was an artifact of the bug (strikes were impossible), so
+the level needs rebalancing before it is a useful fun benchmark.
