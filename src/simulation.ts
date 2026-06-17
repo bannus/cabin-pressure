@@ -47,14 +47,21 @@ export function createInitialState(config: LevelConfig): SimulationState {
       state: initialFillPercent >= config.bladder.requestThreshold ? "NeedsToGo" : "Seated",
       panicSeconds: 0,
       strikeCount: 0,
+      assignedLavatoryId: undefined,
+      aisleRow: undefined,
+      destinationAisleRow: undefined,
       movementStepSecondsRemaining: 0,
       movementSecondsRemaining: 0,
       lavatorySecondsRemaining: 0,
       lavatoryVisitCount: 0,
+      queuePosition: undefined,
       standSecondsRemaining: 0,
       sitSecondsRemaining: 0,
       standCooldownSecondsRemaining: 0,
+      blockingPassengerId: undefined,
       beverageRateMultiplier: 1,
+      beverageRateModifierStartSeconds: undefined,
+      beverageRateModifierEndSeconds: undefined,
       babyDiaperSecondsRemaining:
         archetype === "babyAttachedAdult" && config.babyDiaper !== undefined
           ? babyDiaperEventSeconds(config, `first:${index + 1}`)
@@ -963,19 +970,28 @@ function estimateAisleMovementSeconds(
 }
 
 function buildAisleCells(config: LevelConfig, passengers: Passenger[]): AisleCell[] {
-  const cells: AisleCell[] = [];
   const lavatoryRows = config.aircraft.lavatories.map((lavatory) => lavatory.row);
   const minRow = Math.min(1, ...lavatoryRows);
   const maxRow = Math.max(config.aircraft.rows, ...lavatoryRows);
+
+  const cells: AisleCell[] = [];
+  const cellsByRow = new Map<number, AisleCell>();
   for (let row = minRow; row <= maxRow; row += 1) {
-    cells.push({
-      row,
-      passengerIds: passengers
-        .filter((passenger) => isInAisle(passenger) && passenger.aisleRow === row)
-        .map((passenger) => passenger.id),
-      beverageCartId: undefined
-    });
+    const cell: AisleCell = { row, passengerIds: [], beverageCartId: undefined };
+    cells.push(cell);
+    cellsByRow.set(row, cell);
   }
+
+  for (const passenger of passengers) {
+    if (passenger.aisleRow === undefined || !isInAisle(passenger)) {
+      continue;
+    }
+    const cell = cellsByRow.get(passenger.aisleRow);
+    if (cell !== undefined) {
+      cell.passengerIds.push(passenger.id);
+    }
+  }
+
   return cells;
 }
 

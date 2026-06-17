@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import test from "node:test";
-import { tinyReadableCabin } from "../src/config";
+import { tinyReadableCabin, mediumCabin } from "../src/config";
 import { estimateLavatoryDemand } from "../src/level-metrics";
-import { runBotSimulation, botStep } from "../src/bot";
-import { compareConfigs, defaultSeeds, runBatch } from "../src/batch";
+import {
+  runBotSimulation,
+  botStep,
+  greedyStrategy,
+  panicStrategy,
+  fixedLavatoryStrategy
+} from "../src/bot";
+import { compareConfigs, defaultSeeds, runBatch, sweepConfigs } from "../src/batch";
 import {
   assignPassengerToLavatory,
   createInitialState,
@@ -1113,6 +1119,62 @@ test("bot CLI prints a config comparison", () => {
   assert.match(result.stdout, /\[baseline\]/);
   assert.match(result.stdout, /\[single-lav\]/);
   assert.match(result.stdout, /winRate=/);
+});
+
+test("medium cabin config is valid and fully populated", () => {
+  const state = createInitialState(mediumCabin);
+  assert.equal(state.passengers.length, 180);
+  assert.equal(state.lavatories.length, 3);
+  assert.ok(state.beverageCart !== undefined);
+  assert.ok(state.turbulence !== undefined);
+});
+
+test("bot run reports fun metrics within valid ranges", () => {
+  const result = runBotSimulation(
+    { ...mediumCabin, durationSeconds: 80 },
+    { dt: 0.5, startBeverageCart: true }
+  );
+
+  assert.ok(result.lavatoryUtilization >= 0 && result.lavatoryUtilization <= 1);
+  assert.ok(result.busyFraction >= 0 && result.busyFraction <= 1);
+  assert.ok(result.peakConcurrentDemand >= 0 && result.peakConcurrentDemand <= 180);
+  assert.ok(result.meanConcurrentDemand <= result.peakConcurrentDemand);
+  assert.equal(result.strategy, "greedy");
+});
+
+test("acting early (greedy) uses lavatories more than reacting late (panic)", () => {
+  const seeds = defaultSeeds(3, 500);
+  const config = { ...mediumCabin, durationSeconds: 120 };
+  const options = { seeds, dt: 0.5, startBeverageCart: true };
+
+  const greedy = runBatch(config, { ...options, strategy: greedyStrategy });
+  const panic = runBatch(config, { ...options, strategy: panicStrategy });
+
+  assert.ok(
+    greedy.averageLavatoryUtilization > panic.averageLavatoryUtilization,
+    `expected greedy util ${greedy.averageLavatoryUtilization} > panic util ${panic.averageLavatoryUtilization}`
+  );
+});
+
+test("sweepConfigs returns one cell per config-by-strategy pair", () => {
+  const seeds = defaultSeeds(2, 11);
+  const config = { ...mediumCabin, durationSeconds: 80 };
+  const variants = [
+    { label: "two", config: { ...config, aircraft: { ...config.aircraft, lavatories: config.aircraft.lavatories.slice(0, 2) } } },
+    { label: "three", config }
+  ];
+
+  const cells = sweepConfigs(variants, [greedyStrategy, fixedLavatoryStrategy], {
+    seeds,
+    dt: 0.5,
+    startBeverageCart: true
+  });
+
+  assert.equal(cells.length, 4);
+  assert.deepEqual(
+    cells.map((cell) => `${cell.label}/${cell.strategy}`),
+    ["two/greedy", "two/fixed-lavatory", "three/greedy", "three/fixed-lavatory"]
+  );
 });
 
 async function waitForOutput(

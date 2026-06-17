@@ -10,18 +10,31 @@ import type {
   LevelConfig,
   Lavatory,
   Passenger,
+  PassengerState,
   SimulationState,
   SimulationStatus
 } from "./types";
 
+export interface AssignmentDecision {
+  passengerId: string;
+  lavatoryId: string;
+}
+
+export interface BotStrategy {
+  name: string;
+  decide(state: SimulationState): AssignmentDecision[];
+}
+
 export interface BotOptions {
   dt?: number;
+  strategy?: BotStrategy;
   startBeverageCart?: boolean;
 }
 
 export interface BotRunResult {
   configId: string;
   configName: string;
+  strategy: string;
   seed: number;
   durationSeconds: number;
   finalTime: number;
@@ -34,9 +47,28 @@ export interface BotRunResult {
   babyDiaperChanges: number;
   maxQueueLength: number;
   averageBladderPercent: number;
+  peakConcurrentDemand: number;
+  meanConcurrentDemand: number;
+  demandSpikiness: number;
+  lavatoryUtilization: number;
+  busyFraction: number;
 }
 
 const DEFAULT_DT = 0.1;
+
+const DEMAND_STATES: ReadonlySet<PassengerState> = new Set<PassengerState>([
+  "NeedsToGo",
+  "WaitingForSeatBlockers",
+  "Standing",
+  "WalkingToLavatory",
+  "QueuedForLavatory",
+  "Panic"
+]);
+
+const ASSIGNABLE_STATES: ReadonlySet<PassengerState> = new Set<PassengerState>([
+  "NeedsToGo",
+  "Panic"
+]);
 
 export function urgencyScore(passenger: Passenger): number {
   return (
@@ -48,10 +80,17 @@ export function urgencyScore(passenger: Passenger): number {
 }
 
 function needsAssignment(passenger: Passenger): boolean {
-  return (
-    passenger.assignedLavatoryId === undefined &&
-    (passenger.state === "NeedsToGo" || passenger.state === "Panic")
-  );
+  return passenger.assignedLavatoryId === undefined && ASSIGNABLE_STATES.has(passenger.state);
+}
+
+function sortByUrgency(passengers: Passenger[]): Passenger[] {
+  return [...passengers].sort((left, right) => {
+    const delta = urgencyScore(right) - urgencyScore(left);
+    if (delta !== 0) {
+      return delta;
+    }
+    return left.id.localeCompare(right.id);
+  });
 }
 
 function lavatoryLoad(lavatory: Lavatory, tentative: Map<string, number>): number {
@@ -85,32 +124,72 @@ export function chooseLavatory(
     })[0].lavatory;
 }
 
-export function botStep(state: SimulationState): number {
-  if (state.status !== "running") {
-    return 0;
+function nearestLavatory(state: SimulationState, passenger: Passenger): Lavatory {
+  return [...state.lavatories].sort((left, right) => {
+    const delta = Math.abs(passenger.row - left.row) - Math.abs(passenger.row - right.row);
+    if (delta !== 0) {
+      return delta;
+    }
+    return left.id.localeCompare(right.id);
+  })[0];
+}
+
+export const greedyStrategy: BotStrategy = {
+  name: "greedy",
+  decide(state: SimulationState): AssignmentDecision[] {
+    const candidates = sortByUrgency(state.passengers.filter(needsAssignment));
+    const tentative = new Map<string, number>();
+    const decisions: AssignmentDecision[] = [];
+
+    for (const passenger of candidates) {
+      const lavatory = chooseLavatory(state, passenger, tentative);
+      tentative.set(lavatory.id, (tentative.get(lavatory.id) ?? 0) + 1);
+      decisions.push({ passengerId: passenger.id, lavatoryId: lavatory.id });
+    }
+
+    return decisions;
   }
+};
 
-  const candidates = state.passengers
-    .filter(needsAssignment)
-    .sort((left, right) => {
-      const delta = urgencyScore(right) - urgencyScore(left);
-      if (delta !== 0) {
-        return delta;
-      }
-      return left.id.localeCompare(right.id);
-    });
-
-  if (candidates.length === 0) {
-    return 0;
+export const panicStrategy: BotStrategy = {
+  name: "panic",
+  decide(state: SimulationState): AssignmentDecision[] {
+    return state.passengers
+      .filter(
+        (passenger) => passenger.assignedLavatoryId === undefined && passenger.state === "Panic"
+      )
+      .map((passenger) => ({
+        passengerId: passenger.id,
+        lavatoryId: nearestLavatory(state, passenger).id
+      }));
   }
+};
 
-  const tentative = new Map<string, number>();
+export const fixedLavatoryStrategy: BotStrategy = {
+  name: "fixed-lavatory",
+  decide(state: SimulationState): AssignmentDecision[] {
+    const target = state.lavatories[0];
+    if (target === undefined) {
+      return [];
+    }
+    return state.passengers
+      .filter(needsAssignment)
+      .map((passenger) => ({ passengerId: passenger.id, lavatoryId: target.id }));
+  }
+};
+
+export const BOT_STRATEGIES: Record<string, BotStrategy> = {
+  [greedyStrategy.name]: greedyStrategy,
+  [panicStrategy.name]: panicStrategy,
+  [fixedLavatoryStrategy.name]: fixedLavatoryStrategy
+};
+
+export function applyDecisions(state: SimulationState, decisions: AssignmentDecision[]): number {
   let assignmentsMade = 0;
 
-  for (const passenger of candidates) {
-    const lavatory = chooseLavatory(state, passenger, tentative);
+  for (const decision of decisions) {
     try {
-      assignPassengerToLavatory(state, passenger.id, lavatory.id);
+      assignPassengerToLavatory(state, decision.passengerId, decision.lavatoryId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("seat belt sign")) {
@@ -118,44 +197,95 @@ export function botStep(state: SimulationState): number {
       }
       continue;
     }
-    tentative.set(lavatory.id, (tentative.get(lavatory.id) ?? 0) + 1);
     assignmentsMade += 1;
   }
 
   return assignmentsMade;
 }
 
+export function botStep(state: SimulationState, strategy: BotStrategy = greedyStrategy): number {
+  if (state.status !== "running") {
+    return 0;
+  }
+  return applyDecisions(state, strategy.decide(state));
+}
+
+interface MetricAccumulator {
+  assignmentsMade: number;
+  maxQueueLength: number;
+  peakConcurrentDemand: number;
+  demandSamples: number;
+  demandTotal: number;
+  busySamples: number;
+  occupiedLavatorySeconds: number;
+  totalLavatorySeconds: number;
+}
+
+function sampleMetrics(state: SimulationState, dt: number, metrics: MetricAccumulator): void {
+  let demand = 0;
+  for (const passenger of state.passengers) {
+    if (DEMAND_STATES.has(passenger.state)) {
+      demand += 1;
+    }
+  }
+
+  metrics.demandSamples += 1;
+  metrics.demandTotal += demand;
+  if (demand > metrics.peakConcurrentDemand) {
+    metrics.peakConcurrentDemand = demand;
+  }
+  if (demand > 0) {
+    metrics.busySamples += 1;
+  }
+
+  let occupied = 0;
+  for (const lavatory of state.lavatories) {
+    if (lavatory.occupantPassengerId !== undefined) {
+      occupied += 1;
+    }
+    if (lavatory.queue.length > metrics.maxQueueLength) {
+      metrics.maxQueueLength = lavatory.queue.length;
+    }
+  }
+
+  metrics.occupiedLavatorySeconds += occupied * dt;
+  metrics.totalLavatorySeconds += state.lavatories.length * dt;
+}
+
 export function runBotSimulation(config: LevelConfig, options: BotOptions = {}): BotRunResult {
   const dt = options.dt ?? DEFAULT_DT;
+  const strategy = options.strategy ?? greedyStrategy;
   const state = createInitialState(config);
 
   if (options.startBeverageCart && state.beverageCart !== undefined) {
     startBeverageCart(state);
   }
 
-  let assignmentsMade = 0;
-  let maxQueueLength = 0;
+  const metrics: MetricAccumulator = {
+    assignmentsMade: 0,
+    maxQueueLength: 0,
+    peakConcurrentDemand: 0,
+    demandSamples: 0,
+    demandTotal: 0,
+    busySamples: 0,
+    occupiedLavatorySeconds: 0,
+    totalLavatorySeconds: 0
+  };
 
   while (state.status === "running") {
-    assignmentsMade += botStep(state);
-
-    for (const lavatory of state.lavatories) {
-      if (lavatory.queue.length > maxQueueLength) {
-        maxQueueLength = lavatory.queue.length;
-      }
-    }
-
+    metrics.assignmentsMade += botStep(state, strategy);
+    sampleMetrics(state, dt, metrics);
     tick(state, dt);
   }
 
-  return buildResult(config, state, assignmentsMade, maxQueueLength);
+  return buildResult(config, strategy, state, metrics);
 }
 
 function buildResult(
   config: LevelConfig,
+  strategy: BotStrategy,
   state: SimulationState,
-  assignmentsMade: number,
-  maxQueueLength: number
+  metrics: MetricAccumulator
 ): BotRunResult {
   const summary = summarize(state);
   const panicEvents = state.events.filter((event) => event.type === "panic").length;
@@ -169,20 +299,37 @@ function buildResult(
     0
   );
 
+  const meanConcurrentDemand =
+    metrics.demandSamples === 0 ? 0 : metrics.demandTotal / metrics.demandSamples;
+  const demandSpikiness =
+    meanConcurrentDemand === 0 ? 0 : metrics.peakConcurrentDemand / meanConcurrentDemand;
+  const lavatoryUtilization =
+    metrics.totalLavatorySeconds === 0
+      ? 0
+      : metrics.occupiedLavatorySeconds / metrics.totalLavatorySeconds;
+  const busyFraction =
+    metrics.demandSamples === 0 ? 0 : metrics.busySamples / metrics.demandSamples;
+
   return {
     configId: config.id,
     configName: config.name,
+    strategy: strategy.name,
     seed: config.seed,
     durationSeconds: config.durationSeconds,
     finalTime: state.time,
     status: state.status,
     strikes: state.strikes,
-    assignmentsMade,
+    assignmentsMade: metrics.assignmentsMade,
     panicEvents,
     strikeEvents,
     lavatoryVisits,
     babyDiaperChanges,
-    maxQueueLength,
-    averageBladderPercent: summary.averageBladderPercent
+    maxQueueLength: metrics.maxQueueLength,
+    averageBladderPercent: summary.averageBladderPercent,
+    peakConcurrentDemand: metrics.peakConcurrentDemand,
+    meanConcurrentDemand,
+    demandSpikiness,
+    lavatoryUtilization,
+    busyFraction
   };
 }

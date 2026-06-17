@@ -139,3 +139,17 @@ Implemented features:
 - `runBatch` aggregates many seeded runs into win rate and averages
 - `compareConfigs` runs the same seed set across labeled configs for balance comparison
 - `npm run bot` CLI prints a baseline-vs-variant comparison table
+
+## Milestone 10: Fun evaluation harness
+
+Evaluate whether the game is fun: not too hard, not too easy, not too repetitive,
+with interesting decisions (Overcooked-style hectic).
+
+Implemented features:
+
+- `mediumCabin` config (30 rows, 3x3, 180 passengers) as a realistic evaluation level
+- pluggable bot strategies (`greedyStrategy`, `panicStrategy`, `fixedLavatoryStrategy`) to measure decision depth via the win-rate gap between smart and naive play
+- fun metrics per run: peak/mean concurrent demand, demand spikiness, lavatory utilization, busy fraction, and cross-seed variance (repetitiveness)
+- `sweepConfigs` runs config variants across strategies for difficulty sweeps
+- `npm run evaluate` reports decision depth, fun metrics, and a lavatory-supply difficulty sweep with interpretation hints
+- simulation hot-path optimization (single-pass aisle-cell rebuild and stable passenger object shape) for ~28x faster large-cabin runs
