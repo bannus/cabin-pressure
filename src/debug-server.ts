@@ -31,7 +31,8 @@ createServer(async (request, response) => {
     }
 
     response.writeHead(200, {
-      "content-type": contentTypes[extname(filePath)] ?? "application/octet-stream"
+      "content-type": contentTypes[extname(filePath)] ?? "application/octet-stream",
+      "cache-control": "no-store, must-revalidate"
     });
     createReadStream(filePath).pipe(response);
   } catch {
