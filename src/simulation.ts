@@ -834,7 +834,7 @@ function startAisleMovement(
     destinationAisleRow
   );
 
-  if (isBeverageCartBlockingAisleStep(state, passenger)) {
+  if (isAisleStepBlocked(state, passenger)) {
     passenger.movementStepSecondsRemaining = 0;
   } else if (passenger.movementStepSecondsRemaining === 0) {
     passenger.movementStepSecondsRemaining = nextAisleStepSeconds(state, passenger);
@@ -851,7 +851,7 @@ function advanceAisleMovement(state: SimulationState, passenger: Passenger, dt: 
         completeAisleMovement(state, passenger);
         break;
       }
-      if (isBeverageCartBlockingAisleStep(state, passenger)) {
+      if (isAisleStepBlocked(state, passenger)) {
         break;
       }
       passenger.movementStepSecondsRemaining = nextAisleStepSeconds(state, passenger);
@@ -863,7 +863,7 @@ function advanceAisleMovement(state: SimulationState, passenger: Passenger, dt: 
       continue;
     }
 
-    if (isBeverageCartBlockingAisleStep(state, passenger)) {
+    if (isAisleStepBlocked(state, passenger)) {
       break;
     }
 
@@ -918,20 +918,52 @@ function nextAisleStepSeconds(state: SimulationState, passenger: Passenger): num
     return 0;
   }
 
-  const nextRow = nextAisleRow(passenger);
-  const baseSeconds = state.config.lavatory.walkSecondsPerRow;
-  if (isBeverageCartBlockingAisleStep(state, passenger)) {
+  if (isAisleStepBlocked(state, passenger)) {
     return 0;
   }
+
+  const baseSeconds = state.config.lavatory.walkSecondsPerRow;
+  const nextRow = nextAisleRow(passenger);
+  // Same-direction walkers are hard-blocked elsewhere (single file), so any passenger
+  // still occupying the next cell here is heading the opposite way or standing still:
+  // we can squeeze past, but only at the (heavy) passing slowdown rate.
   const hasPassingConflict = state.passengers.some(
     (candidate) =>
       candidate.id !== passenger.id &&
       isInAisle(candidate) &&
-      (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
+      candidate.aisleRow === nextRow
   );
   return hasPassingConflict
     ? baseSeconds * (state.config.lavatory.passingSlowdownMultiplier ?? 2)
     : baseSeconds;
+}
+
+function passengerAisleDirection(passenger: Passenger): number {
+  if (passenger.aisleRow === undefined || passenger.destinationAisleRow === undefined) {
+    return 0;
+  }
+  return Math.sign(passenger.destinationAisleRow - passenger.aisleRow);
+}
+
+function isAisleStepBlocked(state: SimulationState, passenger: Passenger): boolean {
+  if (isBeverageCartBlockingAisleStep(state, passenger)) {
+    return true;
+  }
+
+  const direction = passengerAisleDirection(passenger);
+  if (direction === 0) {
+    return false;
+  }
+
+  const nextRow = nextAisleRow(passenger);
+  // Single file: you cannot overtake another passenger walking the same direction.
+  return state.passengers.some(
+    (candidate) =>
+      candidate.id !== passenger.id &&
+      isInAisle(candidate) &&
+      candidate.aisleRow === nextRow &&
+      passengerAisleDirection(candidate) === direction
+  );
 }
 
 function isBeverageCartBlockingAisleStep(state: SimulationState, passenger: Passenger): boolean {

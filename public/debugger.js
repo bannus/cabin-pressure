@@ -21,7 +21,7 @@ const baseConfig = {
   desperateThreshold: 0.9,
   minimumWalkSeconds: 2,
   walkSecondsPerRow: 0.75,
-  passingSlowdownMultiplier: 2,
+  passingSlowdownMultiplier: 3.5,
   useDurationSeconds: [8, 14],
   seatBlockers: {
     standSeconds: 1,
@@ -1373,7 +1373,7 @@ function startAisleMovement(passenger, destinationAisleRow, startingAisleRow = p
   passenger.destinationAisleRow = destinationAisleRow;
   passenger.queuePosition = undefined;
   passenger.movementStepSecondsRemaining = config.minimumWalkSeconds;
-  if (isBeverageCartBlockingAisleStep(passenger)) {
+  if (isAisleStepBlocked(passenger)) {
     passenger.movementStepSecondsRemaining = 0;
   } else if (passenger.movementStepSecondsRemaining === 0) {
     passenger.movementStepSecondsRemaining = nextAisleStepSeconds(passenger);
@@ -1391,7 +1391,7 @@ function advanceAisleMovement(passenger, dt) {
         completeAisleMovement(passenger);
         break;
       }
-      if (isBeverageCartBlockingAisleStep(passenger)) {
+      if (isAisleStepBlocked(passenger)) {
         break;
       }
       passenger.movementStepSecondsRemaining = nextAisleStepSeconds(passenger);
@@ -1402,7 +1402,7 @@ function advanceAisleMovement(passenger, dt) {
       continue;
     }
 
-    if (isBeverageCartBlockingAisleStep(passenger)) {
+    if (isAisleStepBlocked(passenger)) {
       break;
     }
 
@@ -1449,17 +1449,44 @@ function nextAisleStepSeconds(passenger) {
   if (passenger.aisleRow === passenger.destinationAisleRow) {
     return 0;
   }
-  const nextRow = nextAisleRow(passenger);
-  if (isBeverageCartBlockingAisleStep(passenger)) {
+  if (isAisleStepBlocked(passenger)) {
     return 0;
   }
+  const nextRow = nextAisleRow(passenger);
+  // Same-direction walkers are hard-blocked (single file); any passenger still in
+  // the next cell here is opposite-bound or stationary, so we squeeze past slowly.
   const conflict = state.passengers.some(
     (candidate) =>
       candidate.id !== passenger.id &&
       isInAisle(candidate) &&
-      (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
+      candidate.aisleRow === nextRow
   );
   return config.walkSecondsPerRow * (conflict ? config.passingSlowdownMultiplier : 1);
+}
+
+function passengerAisleDirection(passenger) {
+  if (passenger.aisleRow === undefined || passenger.destinationAisleRow === undefined) {
+    return 0;
+  }
+  return Math.sign(passenger.destinationAisleRow - passenger.aisleRow);
+}
+
+function isAisleStepBlocked(passenger) {
+  if (isBeverageCartBlockingAisleStep(passenger)) {
+    return true;
+  }
+  const direction = passengerAisleDirection(passenger);
+  if (direction === 0) {
+    return false;
+  }
+  const nextRow = nextAisleRow(passenger);
+  return state.passengers.some(
+    (candidate) =>
+      candidate.id !== passenger.id &&
+      isInAisle(candidate) &&
+      candidate.aisleRow === nextRow &&
+      passengerAisleDirection(candidate) === direction
+  );
 }
 
 function isBeverageCartBlockingAisleStep(passenger) {

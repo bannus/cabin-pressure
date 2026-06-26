@@ -378,16 +378,22 @@ test("lavatory queues expose physical queue positions", () => {
   assignPassengerToLavatory(state, "P001", "front");
   assignPassengerToLavatory(state, "P002", "front");
   assignPassengerToLavatory(state, "P003", "front");
-  tick(state, 1);
+  for (let step = 0; step < 4; step += 1) {
+    tick(state, 1);
+  }
 
-  assert.equal(state.passengers[0]?.state, "UsingLavatory");
+  // The aisle is single file, so the passenger physically nearest the lavatory
+  // (P003 in row 3) reaches it first and the others line up behind in physical
+  // order — assignment order does not let anyone overtake.
+  assert.equal(state.passengers[2]?.state, "UsingLavatory");
   assert.equal(state.passengers[1]?.state, "QueuedForLavatory");
   assert.equal(state.passengers[1]?.queuePosition, 1);
   assert.equal(state.passengers[1]?.aisleRow, 3);
-  assert.equal(state.passengers[2]?.queuePosition, 2);
-  assert.equal(state.passengers[2]?.aisleRow, 2);
+  assert.equal(state.passengers[0]?.state, "QueuedForLavatory");
+  assert.equal(state.passengers[0]?.queuePosition, 2);
+  assert.equal(state.passengers[0]?.aisleRow, 2);
   assert.deepEqual(state.aisleCells.find((cell) => cell.row === 3)?.passengerIds, ["P002"]);
-  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 2)?.passengerIds, ["P003"]);
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 2)?.passengerIds, ["P001"]);
 });
 
 test("passing conflicts slow aisle movement", () => {
@@ -423,6 +429,60 @@ test("passing conflicts slow aisle movement", () => {
 
   assert.equal(state.passengers[1]?.aisleRow, 2);
   assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 3);
+});
+
+test("single file aisle: a follower cannot overtake a same-direction walker", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 4,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 2 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 3.5,
+      useDurationSeconds: [5, 5]
+    },
+    seatBlockers: instantSeatBlockers
+  };
+  const state = createInitialState(config);
+
+  // Leader (P001) is one row ahead of the follower (P002); both walk toward the
+  // front lavatory (row 0), i.e. the same direction.
+  const leader = state.passengers[0]!;
+  const follower = state.passengers[1]!;
+  leader.state = "WalkingToLavatory";
+  leader.assignedLavatoryId = "front";
+  leader.aisleRow = 1;
+  leader.destinationAisleRow = 0;
+  leader.movementStepSecondsRemaining = 1;
+  follower.state = "WalkingToLavatory";
+  follower.assignedLavatoryId = "front";
+  follower.aisleRow = 2;
+  follower.destinationAisleRow = 0;
+  follower.movementStepSecondsRemaining = 0;
+
+  // The follower's next cell (row 1) is occupied by the same-direction leader, so
+  // the follower is blocked and makes no progress while the leader is ahead of it.
+  tick(state, 0.5);
+  assert.equal(follower.aisleRow, 2);
+  assert.equal(follower.state, "WalkingToLavatory");
+
+  // Once the leader has cleared the aisle into the lavatory, the follower advances.
+  for (let step = 0; step < 4; step += 1) {
+    tick(state, 1);
+  }
+  assert.ok(follower.aisleRow! < 2 || follower.state !== "WalkingToLavatory");
 });
 
 test("desperate passengers keep walking to a lavatory and can still strike", () => {

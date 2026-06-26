@@ -28,7 +28,7 @@ export const tinyReadableCabin: LevelConfig = {
   lavatory: {
     minimumWalkSeconds: 2,
     walkSecondsPerRow: 0.75,
-    passingSlowdownMultiplier: 2,
+    passingSlowdownMultiplier: 3.5,
     useDurationSeconds: [8, 14]
   },
   seatBlockers: {
@@ -92,7 +92,7 @@ export const mediumCabin: LevelConfig = {
   lavatory: {
     minimumWalkSeconds: 2,
     walkSecondsPerRow: 0.75,
-    passingSlowdownMultiplier: 2,
+    passingSlowdownMultiplier: 3.5,
     useDurationSeconds: [6, 11]
   },
   seatBlockers: {
