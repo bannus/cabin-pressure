@@ -148,6 +148,7 @@ let selectedPassengerId = state.passengers[0].id;
 let playing = true;
 let speed = 2;
 let lastFrame = performance.now();
+let domCache = null;
 
 const cabinElement = document.querySelector("#cabin");
 const clockElement = document.querySelector("#clock");
@@ -824,31 +825,98 @@ function startUsing(lavatory, passenger) {
   log(`${passenger.id} entered ${lavatory.id} lavatory.`);
 }
 
-function render() {
-  clockElement.textContent = `t=${state.time.toFixed(1)}s · ${state.status}`;
+function cabinSignature() {
+  return `${config.id}|${config.rows}|${config.seatLayout.join("")}|${config.lavatories
+    .map((lavatory) => `${lavatory.id}:${lavatory.row}`)
+    .join(",")}|${state.lavatories.map((lavatory) => lavatory.id).join(",")}`;
+}
+
+function buildCabinStructure() {
   cabinElement.innerHTML = "";
+  assignmentElement.innerHTML = "";
+  watchlistElement.innerHTML = "";
   const aisleSplit = Math.ceil(config.seatLayout.length / 2);
   const seatsRightOfAisle = config.seatLayout.length - aisleSplit;
   cabinElement.style.gridTemplateColumns =
     `repeat(${aisleSplit}, 74px) 36px` +
     (seatsRightOfAisle > 0 ? ` repeat(${seatsRightOfAisle}, 74px)` : "");
-  const frontLavatories = config.lavatories.filter((lavatory) => lavatory.row < 1);
-  const rearLavatories = config.lavatories.filter((lavatory) => lavatory.row >= 1);
-  for (const lavatory of frontLavatories) {
-    cabinElement.append(lavatoryMarker(lavatory.id));
+
+  const cache = {
+    signature: cabinSignature(),
+    seats: new Map(),
+    aisles: new Map(),
+    lavatories: new Map(),
+    assignButtons: new Map(),
+    watchCards: []
+  };
+
+  for (const lavatory of config.lavatories.filter((candidate) => candidate.row < 1)) {
+    const marker = makeLavatoryMarker(lavatory.id);
+    cache.lavatories.set(lavatory.id, marker);
+    cabinElement.append(marker);
   }
   for (let row = 1; row <= config.rows; row += 1) {
     config.seatLayout.forEach((seat, seatIndex) => {
       if (seatIndex === aisleSplit) {
-        cabinElement.append(aisle(row));
+        const aisleCell = makeAisleCell();
+        cache.aisles.set(row, aisleCell);
+        cabinElement.append(aisleCell);
       }
-      const passenger = state.passengers.find((candidate) => candidate.row === row && candidate.seat === seat);
-      cabinElement.append(seatButton(passenger));
+      const button = makeSeatButton();
+      cache.seats.set(`${row}:${seat}`, button);
+      cabinElement.append(button);
     });
   }
-  for (const lavatory of rearLavatories) {
-    cabinElement.append(lavatoryMarker(lavatory.id));
+  for (const lavatory of config.lavatories.filter((candidate) => candidate.row >= 1)) {
+    const marker = makeLavatoryMarker(lavatory.id);
+    cache.lavatories.set(lavatory.id, marker);
+    cabinElement.append(marker);
   }
+
+  for (const lavatory of state.lavatories) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.lavatoryId = lavatory.id;
+    button.textContent = `Send to ${lavatory.id}`;
+    cache.assignButtons.set(lavatory.id, button);
+    assignmentElement.append(button);
+  }
+
+  for (let index = 0; index < 6; index += 1) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "watchlist-card";
+    button.style.display = "none";
+    cache.watchCards.push(button);
+    watchlistElement.append(button);
+  }
+
+  domCache = cache;
+}
+
+function render() {
+  clockElement.textContent = `t=${state.time.toFixed(1)}s · ${state.status}`;
+  if (!domCache || domCache.signature !== cabinSignature()) {
+    buildCabinStructure();
+  }
+
+  const byPosition = new Map();
+  for (const passenger of state.passengers) {
+    byPosition.set(`${passenger.row}:${passenger.seat}`, passenger);
+  }
+  for (const [key, button] of domCache.seats) {
+    const passenger = byPosition.get(key);
+    if (passenger) {
+      updateSeatButton(button, passenger);
+    }
+  }
+  for (const [row, aisleCell] of domCache.aisles) {
+    updateAisleCell(aisleCell, row);
+  }
+  for (const [id, marker] of domCache.lavatories) {
+    updateLavatoryMarker(marker, id);
+  }
+
   renderSelected();
   renderSummary();
   renderWatchlist();
@@ -858,52 +926,60 @@ function render() {
   renderLog();
 }
 
-function seatButton(passenger) {
+function makeSeatButton() {
   const button = document.createElement("button");
   button.type = "button";
+  button.className = "seat";
+  button.append(document.createTextNode(""), document.createElement("span"), document.createElement("span"));
+  return button;
+}
+
+function updateSeatButton(button, passenger) {
   button.dataset.passengerId = passenger.id;
   button.className = `seat ${passenger.id === selectedPassengerId ? "selected" : ""} ${
     passenger.babyDiaperNeedsChange ? "diaper-needed" : ""
   }`;
   button.style.background = bladderColor(bladderPercent(passenger));
-  button.innerHTML = `${passenger.row}${passenger.seat}${
+  button.childNodes[0].nodeValue = `${passenger.row}${passenger.seat}${
     passenger.babyDiaperNeedsChange ? " 🍼" : ""
-  }<span>${Math.round(bladderPercent(passenger) * 100)}%</span><span>${passenger.state}</span>`;
-  return button;
+  }`;
+  button.childNodes[1].textContent = `${Math.round(bladderPercent(passenger) * 100)}%`;
+  button.childNodes[2].textContent = passenger.state;
 }
 
-function aisle(row) {
+function makeAisleCell() {
   const div = document.createElement("div");
+  div.className = "aisle";
+  return div;
+}
+
+function updateAisleCell(div, row) {
   const cell = state.aisleCells.find((candidate) => candidate.row === row);
   const passengerIds = cell?.passengerIds ?? [];
   const cartId = cell?.beverageCartId;
   const occupants = [...passengerIds, cartId ? "cart" : ""].filter(Boolean);
   div.className = `aisle ${occupants.length > 0 ? "occupied" : ""} ${cartId ? "cart" : ""}`;
   div.textContent = occupants.length > 0 ? `${row} · ${occupants.join(",")}` : String(row);
-  return div;
 }
 
-function lavatoryMarker(id) {
+function makeLavatoryMarker(id) {
   const div = document.createElement("button");
-  const lavatory = findLavatory(id);
   div.type = "button";
   div.className = "lavatory-marker";
   div.dataset.lavatoryId = id;
-  div.textContent = `${id.toUpperCase()} LAV · occupant ${lavatory.occupant ?? "-"} · queue ${lavatory.queue.join(", ") || "-"}`;
   return div;
+}
+
+function updateLavatoryMarker(div, id) {
+  const lavatory = findLavatory(id);
+  div.textContent = `${id.toUpperCase()} LAV · occupant ${lavatory.occupant ?? "-"} · queue ${lavatory.queue.join(", ") || "-"}`;
 }
 
 function renderSelected() {
   const passenger = findPassenger(selectedPassengerId);
   selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>diaper: ${passenger.babyDiaperNeedsChange ? "needs change" : passenger.babyDiaperSecondsRemaining === undefined ? "-" : `${passenger.babyDiaperSecondsRemaining.toFixed(1)}s`} · changes: ${passenger.babyDiaperChangeCount}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · destination: ${passenger.destinationAisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}<br>movement step: ${passenger.movementStepSecondsRemaining.toFixed(1)}s · lavatory: ${passenger.lavatorySecondsRemaining.toFixed(1)}s<br>beverage multiplier: ${passenger.beverageRateMultiplier.toFixed(2)}x<br>blocking: ${passenger.blockingPassengerId ?? "-"} · cooldown: ${passenger.standCooldownSecondsRemaining.toFixed(1)}s`;
-  assignmentElement.innerHTML = "";
-  for (const lavatory of state.lavatories) {
-    const button = document.createElement("button");
-    button.type = "button";
+  for (const button of domCache.assignButtons.values()) {
     button.dataset.passengerId = passenger.id;
-    button.dataset.lavatoryId = lavatory.id;
-    button.textContent = `Send to ${lavatory.id}`;
-    assignmentElement.append(button);
   }
 }
 
@@ -933,23 +1009,25 @@ function renderSummary() {
 }
 
 function renderWatchlist() {
-  watchlistElement.innerHTML = "";
   const watchedPassengers = [...state.passengers]
     .sort((left, right) => urgencyScore(right) - urgencyScore(left))
     .slice(0, 6);
 
-  for (const passenger of watchedPassengers) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "watchlist-card";
+  domCache.watchCards.forEach((button, index) => {
+    const passenger = watchedPassengers[index];
+    if (!passenger) {
+      button.style.display = "none";
+      delete button.dataset.passengerId;
+      return;
+    }
+    button.style.display = "";
     button.dataset.passengerId = passenger.id;
     button.innerHTML = `<strong>${passenger.id}</strong> ${passenger.row}${passenger.seat} · ${Math.round(
       bladderPercent(passenger) * 100
     )}%<br>${passenger.state} · ${passenger.archetype}${
       passenger.babyDiaperNeedsChange ? " · diaper" : ""
     }`;
-    watchlistElement.append(button);
-  }
+  });
 }
 
 function passengerStateCounts() {
