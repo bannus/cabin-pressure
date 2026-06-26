@@ -9,6 +9,12 @@ const baseConfig = {
     { id: "front", row: 0 },
     { id: "rear", row: 9 }
   ],
+  passengerMix: {
+    normal: 22,
+    smallBladder: 4,
+    bigBladder: 4,
+    babyAttachedAdult: 2
+  },
   initialFillRange: [0.0, 0.25],
   baseFillPerSecond: 100 / 350,
   requestThreshold: 0.7,
@@ -89,6 +95,40 @@ const configPresets = [
       ...baseConfig.babyDiaper,
       firstEventSeconds: [70, 110],
       repeatEventSeconds: [90, 130]
+    }
+  },
+  {
+    ...baseConfig,
+    id: "medium-cabin",
+    name: "Medium Cabin (rebalanced)",
+    durationSeconds: 300,
+    seed: 24680,
+    rows: 30,
+    seatLayout: ["A", "B", "C", "D", "E", "F"],
+    lavatories: [
+      { id: "front", row: 0 },
+      { id: "rearA", row: 31 },
+      { id: "rearB", row: 31 }
+    ],
+    passengerMix: {
+      normal: 150,
+      smallBladder: 14,
+      bigBladder: 12,
+      babyAttachedAdult: 4
+    },
+    initialFillRange: [0.0, 0.3],
+    baseFillPerSecond: 100 / 500,
+    useDurationSeconds: [6, 11],
+    beverageCart: {
+      ...baseConfig.beverageCart,
+      serviceRows: [30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+      autoStart: false
+    },
+    turbulence: {
+      ...baseConfig.turbulence,
+      durationSeconds: [12, 20],
+      seatBeltSignChance: 0.5,
+      autoStartSeconds: 150
     }
   }
 ];
@@ -247,6 +287,16 @@ function cloneConfig(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function buildArchetypeList(passengerMix) {
+  const list = [];
+  for (const [archetype, count] of Object.entries(passengerMix ?? {})) {
+    for (let index = 0; index < count; index += 1) {
+      list.push(archetype);
+    }
+  }
+  return list;
+}
+
 function loop(now) {
   const elapsed = (now - lastFrame) / 1000;
   lastFrame = now;
@@ -259,15 +309,7 @@ function loop(now) {
 
 function createState() {
   const rng = createRng(config.seed);
-  const archetypeList = shuffle(
-    [
-      ...Array(22).fill("normal"),
-      ...Array(4).fill("smallBladder"),
-      ...Array(4).fill("bigBladder"),
-      ...Array(2).fill("babyAttachedAdult")
-    ],
-    rng
-  );
+  const archetypeList = shuffle(buildArchetypeList(config.passengerMix), rng);
   const passengers = [];
   for (let row = 1; row <= config.rows; row += 1) {
     for (const seat of config.seatLayout) {

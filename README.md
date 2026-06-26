@@ -98,7 +98,11 @@ Available commands while running:
 - `quit`
 
 The browser debugger starts at `http://localhost:4173` by default. Set `PORT`
-to use another port.
+to use another port. Use the config picker to manually playtest the
+**Medium Cabin (rebalanced)** preset (180 passengers, front + two rear
+lavatories). Note the debugger runs its own client-side engine, so outcomes
+approximate but do not exactly match the `src/simulation.ts` engine used by the
+CLI, bot, and evaluation harness.
 
 ## Design docs
 
