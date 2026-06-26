@@ -215,6 +215,32 @@ document.querySelector("#reset").addEventListener("click", () => {
   resetSimulation();
 });
 
+cabinElement.addEventListener("click", (event) => {
+  const lavatoryTarget = event.target.closest("[data-lavatory-id]");
+  if (lavatoryTarget) {
+    assign(selectedPassengerId, lavatoryTarget.dataset.lavatoryId);
+    return;
+  }
+  const seatTarget = event.target.closest("[data-passenger-id]");
+  if (seatTarget) {
+    selectedPassengerId = seatTarget.dataset.passengerId;
+    render();
+  }
+});
+assignmentElement.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-passenger-id][data-lavatory-id]");
+  if (target) {
+    assign(target.dataset.passengerId, target.dataset.lavatoryId);
+  }
+});
+watchlistElement.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-passenger-id]");
+  if (target) {
+    selectedPassengerId = target.dataset.passengerId;
+    render();
+  }
+});
+
 requestAnimationFrame(loop);
 render();
 
@@ -835,6 +861,7 @@ function render() {
 function seatButton(passenger) {
   const button = document.createElement("button");
   button.type = "button";
+  button.dataset.passengerId = passenger.id;
   button.className = `seat ${passenger.id === selectedPassengerId ? "selected" : ""} ${
     passenger.babyDiaperNeedsChange ? "diaper-needed" : ""
   }`;
@@ -842,10 +869,6 @@ function seatButton(passenger) {
   button.innerHTML = `${passenger.row}${passenger.seat}${
     passenger.babyDiaperNeedsChange ? " 🍼" : ""
   }<span>${Math.round(bladderPercent(passenger) * 100)}%</span><span>${passenger.state}</span>`;
-  button.addEventListener("click", () => {
-    selectedPassengerId = passenger.id;
-    render();
-  });
   return button;
 }
 
@@ -865,8 +888,8 @@ function lavatoryMarker(id) {
   const lavatory = findLavatory(id);
   div.type = "button";
   div.className = "lavatory-marker";
+  div.dataset.lavatoryId = id;
   div.textContent = `${id.toUpperCase()} LAV · occupant ${lavatory.occupant ?? "-"} · queue ${lavatory.queue.join(", ") || "-"}`;
-  div.addEventListener("click", () => assign(selectedPassengerId, id));
   return div;
 }
 
@@ -877,8 +900,9 @@ function renderSelected() {
   for (const lavatory of state.lavatories) {
     const button = document.createElement("button");
     button.type = "button";
+    button.dataset.passengerId = passenger.id;
+    button.dataset.lavatoryId = lavatory.id;
     button.textContent = `Send to ${lavatory.id}`;
-    button.addEventListener("click", () => assign(passenger.id, lavatory.id));
     assignmentElement.append(button);
   }
 }
@@ -918,15 +942,12 @@ function renderWatchlist() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "watchlist-card";
+    button.dataset.passengerId = passenger.id;
     button.innerHTML = `<strong>${passenger.id}</strong> ${passenger.row}${passenger.seat} · ${Math.round(
       bladderPercent(passenger) * 100
     )}%<br>${passenger.state} · ${passenger.archetype}${
       passenger.babyDiaperNeedsChange ? " · diaper" : ""
     }`;
-    button.addEventListener("click", () => {
-      selectedPassengerId = passenger.id;
-      render();
-    });
     watchlistElement.append(button);
   }
 }
