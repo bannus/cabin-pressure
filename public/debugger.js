@@ -801,17 +801,28 @@ function startUsing(lavatory, passenger) {
 function render() {
   clockElement.textContent = `t=${state.time.toFixed(1)}s · ${state.status}`;
   cabinElement.innerHTML = "";
-  cabinElement.append(lavatoryMarker("front"));
+  const aisleSplit = Math.ceil(config.seatLayout.length / 2);
+  const seatsRightOfAisle = config.seatLayout.length - aisleSplit;
+  cabinElement.style.gridTemplateColumns =
+    `repeat(${aisleSplit}, 74px) 36px` +
+    (seatsRightOfAisle > 0 ? ` repeat(${seatsRightOfAisle}, 74px)` : "");
+  const frontLavatories = config.lavatories.filter((lavatory) => lavatory.row < 1);
+  const rearLavatories = config.lavatories.filter((lavatory) => lavatory.row >= 1);
+  for (const lavatory of frontLavatories) {
+    cabinElement.append(lavatoryMarker(lavatory.id));
+  }
   for (let row = 1; row <= config.rows; row += 1) {
-    for (const seat of config.seatLayout) {
-      if (seat === "C") {
+    config.seatLayout.forEach((seat, seatIndex) => {
+      if (seatIndex === aisleSplit) {
         cabinElement.append(aisle(row));
       }
       const passenger = state.passengers.find((candidate) => candidate.row === row && candidate.seat === seat);
       cabinElement.append(seatButton(passenger));
-    }
+    });
   }
-  cabinElement.append(lavatoryMarker("rear"));
+  for (const lavatory of rearLavatories) {
+    cabinElement.append(lavatoryMarker(lavatory.id));
+  }
   renderSelected();
   renderSummary();
   renderWatchlist();
