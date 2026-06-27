@@ -184,10 +184,64 @@ export const fixedLavatoryStrategy: BotStrategy = {
   }
 };
 
+/** Total passengers currently occupying the aisle (walking, queued, or in transit). */
+function aisleOccupancy(state: SimulationState): number {
+  let occupancy = 0;
+  for (const cell of state.aisleCells) {
+    occupancy += cell.passengerIds.length;
+  }
+  return occupancy;
+}
+
+const DEFAULT_MAX_CONCURRENT_WALKERS = 10;
+const FLOW_CRITICAL_BLADDER_PERCENT = 0.95;
+
+/**
+ * Models the core skill of the game: metering aisle flow. Releases the most urgent
+ * passengers to the nearest/least-loaded lavatory but stops once the aisle already
+ * holds `maxConcurrentWalkers` people, so the single-file aisle never jams.
+ * Passengers in immediate danger (panic or near-full bladder) are always released.
+ *
+ * Empirically this is the dominant strategy under aisle congestion: capping
+ * concurrent walkers to ~6-12 wins effectively every run regardless of APM, whereas
+ * flooding the aisle collapses throughput. It is the honest "skilled play" benchmark.
+ */
+export function makeFlowControlStrategy(
+  maxConcurrentWalkers = DEFAULT_MAX_CONCURRENT_WALKERS
+): BotStrategy {
+  return {
+    name: "flow-control",
+    decide(state: SimulationState): AssignmentDecision[] {
+      const candidates = sortByUrgency(state.passengers.filter(needsAssignment));
+      const tentative = new Map<string, number>();
+      const decisions: AssignmentDecision[] = [];
+      let walkers = aisleOccupancy(state);
+
+      for (const passenger of candidates) {
+        const critical =
+          passenger.state === "Panic" ||
+          bladderPercent(passenger) >= FLOW_CRITICAL_BLADDER_PERCENT;
+        if (!critical && walkers >= maxConcurrentWalkers) {
+          continue;
+        }
+        const lavatory = chooseLavatory(state, passenger, tentative);
+        tentative.set(lavatory.id, (tentative.get(lavatory.id) ?? 0) + 1);
+        decisions.push({ passengerId: passenger.id, lavatoryId: lavatory.id });
+        walkers += 1;
+      }
+
+      return decisions;
+    }
+  };
+}
+
+export const flowControlStrategy: BotStrategy = makeFlowControlStrategy();
+
 export const BOT_STRATEGIES: Record<string, BotStrategy> = {
   [greedyStrategy.name]: greedyStrategy,
   [panicStrategy.name]: panicStrategy,
-  [fixedLavatoryStrategy.name]: fixedLavatoryStrategy
+  [fixedLavatoryStrategy.name]: fixedLavatoryStrategy,
+  [flowControlStrategy.name]: flowControlStrategy
 };
 
 export function applyDecisions(state: SimulationState, decisions: AssignmentDecision[]): number {

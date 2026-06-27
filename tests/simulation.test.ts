@@ -9,7 +9,8 @@ import {
   botStep,
   greedyStrategy,
   panicStrategy,
-  fixedLavatoryStrategy
+  fixedLavatoryStrategy,
+  flowControlStrategy
 } from "../src/bot";
 import { compareConfigs, defaultSeeds, runBatch, sweepConfigs, sweepActionsPerMinute } from "../src/batch";
 import {
@@ -1232,6 +1233,23 @@ test("acting early (greedy) uses lavatories more than reacting late (panic)", ()
   assert.ok(
     greedy.averageLavatoryUtilization > panic.averageLavatoryUtilization,
     `expected greedy util ${greedy.averageLavatoryUtilization} > panic util ${panic.averageLavatoryUtilization}`
+  );
+});
+
+test("flow-control bot beats greedy by metering aisle congestion", () => {
+  const seeds = defaultSeeds(5, 24680);
+  const options = { seeds, dt: 0.2, startBeverageCart: true };
+
+  const flow = runBatch(mediumCabin, { ...options, strategy: flowControlStrategy });
+  const greedy = runBatch(mediumCabin, { ...options, strategy: greedyStrategy });
+
+  assert.ok(
+    flow.winRate > greedy.winRate,
+    `expected flow-control winRate ${flow.winRate} > greedy winRate ${greedy.winRate}`
+  );
+  assert.ok(
+    flow.averageStrikes < greedy.averageStrikes,
+    `expected flow-control to take fewer strikes than greedy (${flow.averageStrikes} vs ${greedy.averageStrikes})`
   );
 });
 

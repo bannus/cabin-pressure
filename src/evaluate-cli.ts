@@ -1,6 +1,7 @@
 import { mediumCabin } from "./config";
 import {
   fixedLavatoryStrategy,
+  flowControlStrategy,
   greedyStrategy,
   panicStrategy
 } from "./bot";
@@ -87,7 +88,12 @@ function reportApmRequired(config: LevelConfig, options: BatchOptions): void {
 
 function reportStrategyDepth(config: LevelConfig, options: BatchOptions): BatchSummary {
   console.log("== Decision depth (skill gap between strategies) ==");
-  const strategies: BotStrategy[] = [greedyStrategy, panicStrategy, fixedLavatoryStrategy];
+  const strategies: BotStrategy[] = [
+    flowControlStrategy,
+    greedyStrategy,
+    panicStrategy,
+    fixedLavatoryStrategy
+  ];
   const summaries = strategies.map((strategy) => runBatch(config, { ...options, strategy }));
 
   for (const summary of summaries) {
@@ -100,10 +106,11 @@ function reportStrategyDepth(config: LevelConfig, options: BatchOptions): BatchS
 
   const best = summaries[0].winRate;
   const worst = summaries[summaries.length - 1].winRate;
-  console.log(`  -> skill gap (greedy - fixed): ${formatPercent(best - worst)}`);
+  console.log(`  -> skill gap (flow-control - fixed): ${formatPercent(best - worst)}`);
   console.log(`     ${interpretSkillGap(best, worst)}`);
   console.log("");
-  return summaries[0];
+  const greedySummary = summaries.find((summary) => summary.strategy === greedyStrategy.name);
+  return greedySummary ?? summaries[0];
 }
 
 function reportFunMetrics(summary: BatchSummary): void {
