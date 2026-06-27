@@ -193,7 +193,7 @@ function aisleOccupancy(state: SimulationState): number {
   return occupancy;
 }
 
-const DEFAULT_MAX_CONCURRENT_WALKERS = 10;
+const DEFAULT_MAX_CONCURRENT_WALKERS = 8;
 const FLOW_CRITICAL_BLADDER_PERCENT = 0.95;
 
 /**

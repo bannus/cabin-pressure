@@ -126,9 +126,11 @@ const configPresets = [
     },
     turbulence: {
       ...baseConfig.turbulence,
-      durationSeconds: [12, 20],
-      seatBeltSignChance: 0.5,
-      autoStartSeconds: 150
+      warningSeconds: 6,
+      durationSeconds: [8, 12],
+      seatBeltSignChance: 1,
+      autoStartSeconds: 45,
+      repeatIntervalSeconds: [55, 80]
     }
   }
 ];
@@ -396,6 +398,7 @@ function createState() {
       warningSecondsRemaining: 0,
       activeSecondsRemaining: 0,
       hasAutoStarted: false,
+      nextStartSeconds: config.turbulence ? config.turbulence.autoStartSeconds : undefined,
       willTurnSeatBeltSignOn: undefined
     },
     events: []
@@ -1113,6 +1116,7 @@ function startTurbulence() {
   }
 
   turbulence.hasAutoStarted = true;
+  turbulence.nextStartSeconds = undefined;
   turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn();
   turbulence.warningSecondsRemaining = config.turbulence.warningSeconds;
   turbulence.activeSecondsRemaining = 0;
@@ -1131,9 +1135,8 @@ function updateTurbulence(dt) {
 
   if (
     turbulence.phase === "idle" &&
-    config.turbulence.autoStartSeconds !== undefined &&
-    !turbulence.hasAutoStarted &&
-    state.time >= config.turbulence.autoStartSeconds
+    turbulence.nextStartSeconds !== undefined &&
+    state.time >= turbulence.nextStartSeconds
   ) {
     startTurbulence();
   }
@@ -1152,8 +1155,23 @@ function updateTurbulence(dt) {
       turbulence.phase = "idle";
       turbulence.willTurnSeatBeltSignOn = undefined;
       log("Seat belt sign turned off.");
+      scheduleNextTurbulence(turbulence);
     }
   }
+}
+
+function scheduleNextTurbulence(turbulence) {
+  const repeat = config.turbulence ? config.turbulence.repeatIntervalSeconds : undefined;
+  if (!repeat) {
+    turbulence.nextStartSeconds = undefined;
+    return;
+  }
+  const [min, max] = repeat;
+  const span =
+    min === max
+      ? min
+      : min + (max - min) * (hash(`${config.seed}:turbulence:${state.time}:repeat`) / 4294967296);
+  turbulence.nextStartSeconds = state.time + span;
 }
 
 function finishTurbulenceWarning(turbulence) {
@@ -1163,6 +1181,7 @@ function finishTurbulenceWarning(turbulence) {
     turbulence.activeSecondsRemaining = 0;
     turbulence.willTurnSeatBeltSignOn = undefined;
     log("Turbulence passed without the seat belt sign.");
+    scheduleNextTurbulence(turbulence);
     return;
   }
 

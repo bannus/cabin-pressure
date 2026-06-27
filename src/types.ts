@@ -102,6 +102,12 @@ export interface TurbulenceConfig {
   durationSeconds: [number, number];
   seatBeltSignChance: number;
   autoStartSeconds?: number;
+  /**
+   * When set, turbulence re-arms after each event ends, with the next auto-start
+   * scheduled this many seconds later (random within the range). Enables periodic
+   * seat-belt-sign surges instead of a single one-shot event.
+   */
+  repeatIntervalSeconds?: [number, number];
 }
 
 export interface BabyDiaperConfig {
@@ -126,6 +132,7 @@ export interface Turbulence {
   warningSecondsRemaining: number;
   activeSecondsRemaining: number;
   hasAutoStarted: boolean;
+  nextStartSeconds?: number;
   willTurnSeatBeltSignOn?: boolean;
 }
 

@@ -245,6 +245,7 @@ export function startTurbulence(state: SimulationState): SimulationState {
   }
 
   turbulence.hasAutoStarted = true;
+  turbulence.nextStartSeconds = undefined;
   turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn(state);
   turbulence.warningSecondsRemaining = requireTurbulenceConfig(state).warningSeconds;
   turbulence.activeSecondsRemaining = 0;
@@ -1076,7 +1077,8 @@ function buildTurbulence(config: LevelConfig): Turbulence | undefined {
     phase: "idle",
     warningSecondsRemaining: 0,
     activeSecondsRemaining: 0,
-    hasAutoStarted: false
+    hasAutoStarted: false,
+    nextStartSeconds: config.turbulence.autoStartSeconds
   };
 }
 
@@ -1122,9 +1124,8 @@ function updateTurbulenceProgress(state: SimulationState, dt: number): void {
 
   if (
     turbulence.phase === "idle" &&
-    turbulenceConfig.autoStartSeconds !== undefined &&
-    !turbulence.hasAutoStarted &&
-    state.time >= turbulenceConfig.autoStartSeconds
+    turbulence.nextStartSeconds !== undefined &&
+    state.time >= turbulence.nextStartSeconds
   ) {
     startTurbulence(state);
   }
@@ -1143,6 +1144,7 @@ function updateTurbulenceProgress(state: SimulationState, dt: number): void {
       turbulence.phase = "idle";
       turbulence.willTurnSeatBeltSignOn = undefined;
       addEvent(state, "seatBeltSignOff", "Seat belt sign turned off.");
+      scheduleNextTurbulence(state, turbulence);
     }
   }
 }
@@ -1154,6 +1156,7 @@ function finishTurbulenceWarning(state: SimulationState, turbulence: Turbulence)
     turbulence.activeSecondsRemaining = 0;
     turbulence.willTurnSeatBeltSignOn = undefined;
     addEvent(state, "seatBeltSignSkipped", "Turbulence passed without the seat belt sign.");
+    scheduleNextTurbulence(state, turbulence);
     return;
   }
 
@@ -1197,6 +1200,20 @@ function forceAislePassengersToReturn(state: SimulationState): void {
   }
 
   refreshAisleCells(state);
+}
+
+function scheduleNextTurbulence(state: SimulationState, turbulence: Turbulence): void {
+  const repeat = requireTurbulenceConfig(state).repeatIntervalSeconds;
+  if (repeat === undefined) {
+    turbulence.nextStartSeconds = undefined;
+    return;
+  }
+  const [min, max] = repeat;
+  const span =
+    min === max
+      ? min
+      : min + (max - min) * hashString(`${state.config.seed}:turbulence:${state.time}:repeat`);
+  turbulence.nextStartSeconds = state.time + span;
 }
 
 function isSeatBeltSignOn(state: SimulationState): boolean {

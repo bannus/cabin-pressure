@@ -952,6 +952,38 @@ test("turbulence warning can pass without turning on the seat belt sign", () => 
   assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
 });
 
+test("repeatIntervalSeconds re-arms turbulence for periodic seat-belt pulses", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 60,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 1 },
+    turbulence: {
+      warningSeconds: 1,
+      durationSeconds: [2, 2],
+      seatBeltSignChance: 1,
+      autoStartSeconds: 5,
+      repeatIntervalSeconds: [4, 4]
+    }
+  };
+  const state = createInitialState(config);
+
+  for (let i = 0; i < 600; i += 1) {
+    tick(state, 0.1);
+  }
+
+  const pulses = state.events.filter((event) => event.type === "seatBeltSignOn");
+  assert.ok(
+    pulses.length >= 3,
+    `expected multiple recurring seat-belt pulses, saw ${pulses.length}`
+  );
+});
+
 test("baby-attached adults get diaper events with long lavatory tasks", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,

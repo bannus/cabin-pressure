@@ -110,10 +110,11 @@ export const mediumCabin: LevelConfig = {
     autoStart: false
   },
   turbulence: {
-    warningSeconds: 5,
-    durationSeconds: [12, 20],
-    seatBeltSignChance: 0.5,
-    autoStartSeconds: 150
+    warningSeconds: 6,
+    durationSeconds: [8, 12],
+    seatBeltSignChance: 1,
+    autoStartSeconds: 45,
+    repeatIntervalSeconds: [55, 80]
   },
   babyDiaper: {
     firstEventSeconds: [35, 75],
