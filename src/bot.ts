@@ -107,10 +107,23 @@ function lavatoryLoad(lavatory: Lavatory, tentative: Map<string, number>): numbe
   );
 }
 
+/** Aisle row of the cart if it is actively blocking the aisle, else undefined. */
+function activeCartRow(state: SimulationState): number | undefined {
+  const cart = state.beverageCart;
+  if (cart === undefined || (cart.state !== "moving" && cart.state !== "servicing")) {
+    return undefined;
+  }
+  return cart.currentAisleRow;
+}
+
+/** Large routing penalty for a lavatory whose path is gated by the active cart. */
+const CART_CROSSING_PENALTY = 1000;
+
 export function chooseLavatory(
   state: SimulationState,
   passenger: Passenger,
-  tentative: Map<string, number>
+  tentative: Map<string, number>,
+  avoidCartRow?: number
 ): Lavatory {
   const walkSecondsPerRow = state.config.lavatory.walkSecondsPerRow;
   const averageUseSeconds =
@@ -120,7 +133,15 @@ export function chooseLavatory(
     .map((lavatory) => {
       const walkCost = Math.abs(passenger.row - lavatory.row) * walkSecondsPerRow;
       const queueCost = lavatoryLoad(lavatory, tentative) * averageUseSeconds;
-      return { lavatory, cost: walkCost + queueCost };
+      let cost = walkCost + queueCost;
+      if (avoidCartRow !== undefined) {
+        const low = Math.min(passenger.row, lavatory.row);
+        const high = Math.max(passenger.row, lavatory.row);
+        if (avoidCartRow >= low && avoidCartRow <= high) {
+          cost += CART_CROSSING_PENALTY;
+        }
+      }
+      return { lavatory, cost };
     })
     .sort((left, right) => {
       if (left.cost !== right.cost) {
@@ -197,14 +218,16 @@ const DEFAULT_MAX_CONCURRENT_WALKERS = 8;
 const FLOW_CRITICAL_BLADDER_PERCENT = 0.95;
 
 /**
- * Models the core skill of the game: metering aisle flow. Releases the most urgent
- * passengers to the nearest/least-loaded lavatory but stops once the aisle already
- * holds `maxConcurrentWalkers` people, so the single-file aisle never jams.
+ * Models the core skill of the game: metering aisle flow while routing around the
+ * beverage cart. Releases the most urgent passengers to the nearest/least-loaded
+ * lavatory that does not require crossing the active cart, but stops once the aisle
+ * already holds `maxConcurrentWalkers` people, so the single-file aisle never jams.
  * Passengers in immediate danger (panic or near-full bladder) are always released.
  *
  * Empirically this is the dominant strategy under aisle congestion: capping
  * concurrent walkers to ~6-12 wins effectively every run regardless of APM, whereas
- * flooding the aisle collapses throughput. It is the honest "skilled play" benchmark.
+ * flooding the aisle collapses throughput. Routing around the slow cart adds a
+ * second, spatial skill layer. It is the honest "skilled play" benchmark.
  */
 export function makeFlowControlStrategy(
   maxConcurrentWalkers = DEFAULT_MAX_CONCURRENT_WALKERS
@@ -215,6 +238,7 @@ export function makeFlowControlStrategy(
       const candidates = sortByUrgency(state.passengers.filter(needsAssignment));
       const tentative = new Map<string, number>();
       const decisions: AssignmentDecision[] = [];
+      const cartRow = activeCartRow(state);
       let walkers = aisleOccupancy(state);
 
       for (const passenger of candidates) {
@@ -224,7 +248,7 @@ export function makeFlowControlStrategy(
         if (!critical && walkers >= maxConcurrentWalkers) {
           continue;
         }
-        const lavatory = chooseLavatory(state, passenger, tentative);
+        const lavatory = chooseLavatory(state, passenger, tentative, cartRow);
         tentative.set(lavatory.id, (tentative.get(lavatory.id) ?? 0) + 1);
         decisions.push({ passengerId: passenger.id, lavatoryId: lavatory.id });
         walkers += 1;

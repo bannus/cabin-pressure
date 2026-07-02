@@ -1268,6 +1268,56 @@ test("acting early (greedy) uses lavatories more than reacting late (panic)", ()
   );
 });
 
+test("blockingWakeRows widens the cart's impassable span in the aisle", () => {
+  const makeConfig = (blockingWakeRows: number): LevelConfig => ({
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 3,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 3 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 4,
+      useDurationSeconds: [5, 5]
+    },
+    beverageCart: {
+      serviceRows: [1],
+      rowServiceSeconds: [10, 10],
+      moveSecondsPerRow: 1,
+      bladderRateMultiplier: 2,
+      bladderRateDelaySeconds: 0,
+      bladderRateDurationSeconds: 1,
+      blockingWakeRows
+    },
+    seatBlockers: instantSeatBlockers
+  });
+
+  // Passenger two rows away from a cart parked at row 1.
+  const walkOneStep = (blockingWakeRows: number): number | undefined => {
+    const state = createInitialState(makeConfig(blockingWakeRows));
+    startBeverageCart(state);
+    assert.equal(state.beverageCart?.currentAisleRow, 1);
+    assignPassengerToLavatory(state, "P003", "front");
+    tick(state, 1);
+    return state.passengers.find((passenger) => passenger.id === "P003")?.aisleRow;
+  };
+
+  // Wake 0: only the cart's own cell blocks, so the passenger advances to row 2.
+  assert.equal(walkOneStep(0), 2);
+  // Wake 1: the cell adjacent to the cart is also impassable, so the passenger holds at row 3.
+  assert.equal(walkOneStep(1), 3);
+});
+
 test("flow-control bot beats greedy by metering aisle congestion", () => {
   const seeds = defaultSeeds(5, 24680);
   const options = { seeds, dt: 0.2, startBeverageCart: true };

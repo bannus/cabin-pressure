@@ -978,7 +978,11 @@ function isBeverageCartBlockingAisleStep(state: SimulationState, passenger: Pass
   }
 
   const nextRow = nextAisleRow(passenger);
-  return cart.currentAisleRow === passenger.aisleRow || cart.currentAisleRow === nextRow;
+  const wake = state.config.beverageCart?.blockingWakeRows ?? 0;
+  return (
+    Math.abs(cart.currentAisleRow - passenger.aisleRow) <= wake ||
+    Math.abs(cart.currentAisleRow - nextRow) <= wake
+  );
 }
 
 function nextAisleRow(passenger: Passenger): number {
@@ -1042,11 +1046,11 @@ function refreshAisleCells(state: SimulationState): void {
     state.beverageCart !== undefined &&
     (state.beverageCart.state === "moving" || state.beverageCart.state === "servicing")
   ) {
-    const cartCell = state.aisleCells.find(
-      (cell) => cell.row === state.beverageCart?.currentAisleRow
-    );
-    if (cartCell !== undefined) {
-      cartCell.beverageCartId = state.beverageCart.id;
+    const wake = state.config.beverageCart?.blockingWakeRows ?? 0;
+    for (const cell of state.aisleCells) {
+      if (Math.abs(cell.row - state.beverageCart.currentAisleRow) <= wake) {
+        cell.beverageCartId = state.beverageCart.id;
+      }
     }
   }
 }

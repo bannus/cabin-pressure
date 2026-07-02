@@ -122,15 +122,17 @@ const configPresets = [
     beverageCart: {
       ...baseConfig.beverageCart,
       serviceRows: [30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+      rowServiceSeconds: [4, 6],
+      moveSecondsPerRow: 1.5,
+      blockingWakeRows: 1,
       autoStart: false
     },
     turbulence: {
       ...baseConfig.turbulence,
       warningSeconds: 6,
-      durationSeconds: [8, 12],
+      durationSeconds: [5, 8],
       seatBeltSignChance: 1,
-      autoStartSeconds: 45,
-      repeatIntervalSeconds: [55, 80]
+      autoStartSeconds: 60
     }
   }
 ];
@@ -1513,7 +1515,11 @@ function isBeverageCartBlockingAisleStep(passenger) {
   const cart = state.beverageCart;
   if (!cart || !["moving", "servicing"].includes(cart.state)) return false;
   const nextRow = nextAisleRow(passenger);
-  return cart.currentAisleRow === passenger.aisleRow || cart.currentAisleRow === nextRow;
+  const wake = config.beverageCart && config.beverageCart.blockingWakeRows ? config.beverageCart.blockingWakeRows : 0;
+  return (
+    Math.abs(cart.currentAisleRow - passenger.aisleRow) <= wake ||
+    Math.abs(cart.currentAisleRow - nextRow) <= wake
+  );
 }
 
 function nextAisleRow(passenger) {
@@ -1527,9 +1533,11 @@ function isInAisle(passenger) {
 function refreshAisleCells() {
   state.aisleCells = buildAisleCells(state.passengers);
   if (state.beverageCart && ["moving", "servicing"].includes(state.beverageCart.state)) {
-    const cell = state.aisleCells.find((candidate) => candidate.row === state.beverageCart.currentAisleRow);
-    if (cell) {
-      cell.beverageCartId = state.beverageCart.id;
+    const wake = config.beverageCart && config.beverageCart.blockingWakeRows ? config.beverageCart.blockingWakeRows : 0;
+    for (const cell of state.aisleCells) {
+      if (Math.abs(cell.row - state.beverageCart.currentAisleRow) <= wake) {
+        cell.beverageCartId = state.beverageCart.id;
+      }
     }
   }
 }

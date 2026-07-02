@@ -92,6 +92,13 @@ export interface BeverageCartConfig {
   bladderRateDelaySeconds: number;
   bladderRateDurationSeconds: number;
   autoStart?: boolean;
+  /**
+   * Extra rows on each side of the cart that are also impassable, modelling the
+   * congestion wake of a cart blocking the aisle. 0 (default) blocks only the
+   * cart's own cell; higher values make the cart a wider moving roadblock that
+   * gates aisle access around it.
+   */
+  blockingWakeRows?: number;
 }
 
 export type BeverageCartState = "ready" | "moving" | "servicing" | "complete";

@@ -102,19 +102,19 @@ export const mediumCabin: LevelConfig = {
   },
   beverageCart: {
     serviceRows: [30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
-    rowServiceSeconds: [2, 3],
-    moveSecondsPerRow: 1,
+    rowServiceSeconds: [4, 6],
+    moveSecondsPerRow: 1.5,
     bladderRateMultiplier: 1.35,
     bladderRateDelaySeconds: 20,
     bladderRateDurationSeconds: 45,
-    autoStart: false
+    autoStart: false,
+    blockingWakeRows: 1
   },
   turbulence: {
     warningSeconds: 6,
-    durationSeconds: [8, 12],
+    durationSeconds: [5, 8],
     seatBeltSignChance: 1,
-    autoStartSeconds: 45,
-    repeatIntervalSeconds: [55, 80]
+    autoStartSeconds: 60
   },
   babyDiaper: {
     firstEventSeconds: [35, 75],
