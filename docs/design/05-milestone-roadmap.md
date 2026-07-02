@@ -139,3 +139,49 @@ Implemented features:
 - `runBatch` aggregates many seeded runs into win rate and averages
 - `compareConfigs` runs the same seed set across labeled configs for balance comparison
 - `npm run bot` CLI prints a baseline-vs-variant comparison table
+
+## Milestone 10: Fun evaluation harness
+
+Evaluate whether the game is fun: not too hard, not too easy, not too repetitive,
+with interesting decisions (Overcooked-style hectic).
+
+Implemented features:
+
+- `mediumCabin` config (30 rows, 3x3, 180 passengers) as a realistic evaluation level
+- pluggable bot strategies (`greedyStrategy`, `panicStrategy`, `fixedLavatoryStrategy`) to measure decision depth via the win-rate gap between smart and naive play
+- fun metrics per run: peak/mean concurrent demand, demand spikiness, lavatory utilization, busy fraction, and cross-seed variance (repetitiveness)
+- `sweepConfigs` runs config variants across strategies for difficulty sweeps
+- `sweepActionsPerMinute` runs the bot under a range of actions-per-minute caps so
+  the harness can report how twitchy a level is (the lowest APM that still wins)
+- `BotOptions.actionsPerMinute` caps how many assignments the bot may issue per
+  minute via a carried action budget, spending it on the most urgent passengers first
+- `npm run evaluate` reports decision depth, fun metrics, a lavatory-supply difficulty sweep, and the actions-per-minute required, all with interpretation hints
+- simulation hot-path optimization (single-pass aisle-cell rebuild and stable passenger object shape) for ~28x faster large-cabin runs
+
+### Desperation / strike behavior fix
+
+While building the harness, the `panic` strategy surfaced a bug: a passenger who hit
+100% bladder while walking to or queued for a lavatory was forced into the `Panic`
+state, which abandoned their in-progress trip. A bot re-assigning them reset the
+panic timer every tick, so they thrashed forever and never actually struck.
+
+The strike timer is now decoupled from the visible `Panic` state:
+
+- `desperateThreshold` drives a desperation timer (`panicSeconds`) that accumulates
+  whenever a passenger is over the threshold, regardless of whether they are seated,
+  walking, or queued. It now has a real gameplay purpose beyond validation.
+- In-progress trips (walking, queued, returning) are preserved even when the
+  passenger grows desperate — they keep their place in line.
+- A strike fires only when `panicSeconds >= panicGraceSeconds`, after which the
+  passenger has an "accident", their bladder is relieved, and any trip is abandoned.
+- Only idle (seated) desperate passengers visibly enter the `Panic` state.
+
+Note: this fix also revealed that `mediumCabin` was overtuned — the previous
+"perfect bot wins" result was an artifact of the bug (strikes were impossible).
+After the fix, the level was rebalanced (slower bladder fill `100/500`, faster
+lavatory turnover `useDurationSeconds [6, 11]`, keeping the realistic front + two
+rear lavatory layout). The greedy bot now wins ~80%, naive strategies lose, and
+the level is winnable at ~10 APM — important because the game targets mobile
+players who scroll between cabin sections and therefore have a low effective APM.
+The difficulty proved to be a sharp cliff (small fill-rate changes flip win rate
+between ~100% and ~0%), so future tuning should change one lever at a time.

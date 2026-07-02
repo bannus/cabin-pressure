@@ -1,9 +1,28 @@
-export { tinyReadableCabin, withLevelOverrides } from "./config";
+export { tinyReadableCabin, mediumCabin, withLevelOverrides } from "./config";
 export { estimateLavatoryDemand } from "./level-metrics";
-export { botStep, chooseLavatory, runBotSimulation, urgencyScore } from "./bot";
-export type { BotOptions, BotRunResult } from "./bot";
-export { compareConfigs, defaultSeeds, runBatch } from "./batch";
-export type { BatchOptions, BatchSummary, ComparisonResult, NamedConfig } from "./batch";
+export {
+  applyDecisions,
+  botStep,
+  chooseLavatory,
+  fixedLavatoryStrategy,
+  flowControlStrategy,
+  greedyStrategy,
+  makeFlowControlStrategy,
+  panicStrategy,
+  runBotSimulation,
+  urgencyScore,
+  BOT_STRATEGIES
+} from "./bot";
+export type { AssignmentDecision, BotOptions, BotRunResult, BotStrategy } from "./bot";
+export { compareConfigs, defaultSeeds, runBatch, sweepConfigs, sweepActionsPerMinute } from "./batch";
+export type {
+  ApmSweepCell,
+  BatchOptions,
+  BatchSummary,
+  ComparisonResult,
+  NamedConfig,
+  SweepCell
+} from "./batch";
 export {
   assignPassengerToLavatory,
   createInitialState,

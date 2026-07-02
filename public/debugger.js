@@ -9,13 +9,19 @@ const baseConfig = {
     { id: "front", row: 0 },
     { id: "rear", row: 9 }
   ],
+  passengerMix: {
+    normal: 22,
+    smallBladder: 4,
+    bigBladder: 4,
+    babyAttachedAdult: 2
+  },
   initialFillRange: [0.0, 0.25],
   baseFillPerSecond: 100 / 350,
   requestThreshold: 0.7,
   desperateThreshold: 0.9,
   minimumWalkSeconds: 2,
   walkSecondsPerRow: 0.75,
-  passingSlowdownMultiplier: 2,
+  passingSlowdownMultiplier: 3.5,
   useDurationSeconds: [8, 14],
   seatBlockers: {
     standSeconds: 1,
@@ -90,6 +96,44 @@ const configPresets = [
       firstEventSeconds: [70, 110],
       repeatEventSeconds: [90, 130]
     }
+  },
+  {
+    ...baseConfig,
+    id: "medium-cabin",
+    name: "Medium Cabin (rebalanced)",
+    durationSeconds: 300,
+    seed: 24680,
+    rows: 30,
+    seatLayout: ["A", "B", "C", "D", "E", "F"],
+    lavatories: [
+      { id: "front", row: 0 },
+      { id: "rearA", row: 31 },
+      { id: "rearB", row: 31 }
+    ],
+    passengerMix: {
+      normal: 150,
+      smallBladder: 14,
+      bigBladder: 12,
+      babyAttachedAdult: 4
+    },
+    initialFillRange: [0.0, 0.3],
+    baseFillPerSecond: 100 / 500,
+    useDurationSeconds: [6, 11],
+    beverageCart: {
+      ...baseConfig.beverageCart,
+      serviceRows: [30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+      rowServiceSeconds: [4, 6],
+      moveSecondsPerRow: 1.5,
+      blockingWakeRows: 1,
+      autoStart: false
+    },
+    turbulence: {
+      ...baseConfig.turbulence,
+      warningSeconds: 6,
+      durationSeconds: [5, 8],
+      seatBeltSignChance: 1,
+      autoStartSeconds: 60
+    }
   }
 ];
 
@@ -108,6 +152,7 @@ let selectedPassengerId = state.passengers[0].id;
 let playing = true;
 let speed = 2;
 let lastFrame = performance.now();
+let domCache = null;
 
 const cabinElement = document.querySelector("#cabin");
 const clockElement = document.querySelector("#clock");
@@ -173,6 +218,32 @@ document.querySelector("#assignNeediest").addEventListener("click", () => {
 });
 document.querySelector("#reset").addEventListener("click", () => {
   resetSimulation();
+});
+
+cabinElement.addEventListener("click", (event) => {
+  const lavatoryTarget = event.target.closest("[data-lavatory-id]");
+  if (lavatoryTarget) {
+    assign(selectedPassengerId, lavatoryTarget.dataset.lavatoryId);
+    return;
+  }
+  const seatTarget = event.target.closest("[data-passenger-id]");
+  if (seatTarget) {
+    selectedPassengerId = seatTarget.dataset.passengerId;
+    render();
+  }
+});
+assignmentElement.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-passenger-id][data-lavatory-id]");
+  if (target) {
+    assign(target.dataset.passengerId, target.dataset.lavatoryId);
+  }
+});
+watchlistElement.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-passenger-id]");
+  if (target) {
+    selectedPassengerId = target.dataset.passengerId;
+    render();
+  }
 });
 
 requestAnimationFrame(loop);
@@ -247,6 +318,16 @@ function cloneConfig(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function buildArchetypeList(passengerMix) {
+  const list = [];
+  for (const [archetype, count] of Object.entries(passengerMix ?? {})) {
+    for (let index = 0; index < count; index += 1) {
+      list.push(archetype);
+    }
+  }
+  return list;
+}
+
 function loop(now) {
   const elapsed = (now - lastFrame) / 1000;
   lastFrame = now;
@@ -259,15 +340,7 @@ function loop(now) {
 
 function createState() {
   const rng = createRng(config.seed);
-  const archetypeList = shuffle(
-    [
-      ...Array(22).fill("normal"),
-      ...Array(4).fill("smallBladder"),
-      ...Array(4).fill("bigBladder"),
-      ...Array(2).fill("babyAttachedAdult")
-    ],
-    rng
-  );
+  const archetypeList = shuffle(buildArchetypeList(config.passengerMix), rng);
   const passengers = [];
   for (let row = 1; row <= config.rows; row += 1) {
     for (const seat of config.seatLayout) {
@@ -327,6 +400,7 @@ function createState() {
       warningSecondsRemaining: 0,
       activeSecondsRemaining: 0,
       hasAutoStarted: false,
+      nextStartSeconds: config.turbulence ? config.turbulence.autoStartSeconds : undefined,
       willTurnSeatBeltSignOn: undefined
     },
     events: []
@@ -756,20 +830,98 @@ function startUsing(lavatory, passenger) {
   log(`${passenger.id} entered ${lavatory.id} lavatory.`);
 }
 
+function cabinSignature() {
+  return `${config.id}|${config.rows}|${config.seatLayout.join("")}|${config.lavatories
+    .map((lavatory) => `${lavatory.id}:${lavatory.row}`)
+    .join(",")}|${state.lavatories.map((lavatory) => lavatory.id).join(",")}`;
+}
+
+function buildCabinStructure() {
+  cabinElement.innerHTML = "";
+  assignmentElement.innerHTML = "";
+  watchlistElement.innerHTML = "";
+  const aisleSplit = Math.ceil(config.seatLayout.length / 2);
+  const seatsRightOfAisle = config.seatLayout.length - aisleSplit;
+  cabinElement.style.gridTemplateColumns =
+    `repeat(${aisleSplit}, 74px) 36px` +
+    (seatsRightOfAisle > 0 ? ` repeat(${seatsRightOfAisle}, 74px)` : "");
+
+  const cache = {
+    signature: cabinSignature(),
+    seats: new Map(),
+    aisles: new Map(),
+    lavatories: new Map(),
+    assignButtons: new Map(),
+    watchCards: []
+  };
+
+  for (const lavatory of config.lavatories.filter((candidate) => candidate.row < 1)) {
+    const marker = makeLavatoryMarker(lavatory.id);
+    cache.lavatories.set(lavatory.id, marker);
+    cabinElement.append(marker);
+  }
+  for (let row = 1; row <= config.rows; row += 1) {
+    config.seatLayout.forEach((seat, seatIndex) => {
+      if (seatIndex === aisleSplit) {
+        const aisleCell = makeAisleCell();
+        cache.aisles.set(row, aisleCell);
+        cabinElement.append(aisleCell);
+      }
+      const button = makeSeatButton();
+      cache.seats.set(`${row}:${seat}`, button);
+      cabinElement.append(button);
+    });
+  }
+  for (const lavatory of config.lavatories.filter((candidate) => candidate.row >= 1)) {
+    const marker = makeLavatoryMarker(lavatory.id);
+    cache.lavatories.set(lavatory.id, marker);
+    cabinElement.append(marker);
+  }
+
+  for (const lavatory of state.lavatories) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.lavatoryId = lavatory.id;
+    button.textContent = `Send to ${lavatory.id}`;
+    cache.assignButtons.set(lavatory.id, button);
+    assignmentElement.append(button);
+  }
+
+  for (let index = 0; index < 6; index += 1) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "watchlist-card";
+    button.style.display = "none";
+    cache.watchCards.push(button);
+    watchlistElement.append(button);
+  }
+
+  domCache = cache;
+}
+
 function render() {
   clockElement.textContent = `t=${state.time.toFixed(1)}s · ${state.status}`;
-  cabinElement.innerHTML = "";
-  cabinElement.append(lavatoryMarker("front"));
-  for (let row = 1; row <= config.rows; row += 1) {
-    for (const seat of config.seatLayout) {
-      if (seat === "C") {
-        cabinElement.append(aisle(row));
-      }
-      const passenger = state.passengers.find((candidate) => candidate.row === row && candidate.seat === seat);
-      cabinElement.append(seatButton(passenger));
+  if (!domCache || domCache.signature !== cabinSignature()) {
+    buildCabinStructure();
+  }
+
+  const byPosition = new Map();
+  for (const passenger of state.passengers) {
+    byPosition.set(`${passenger.row}:${passenger.seat}`, passenger);
+  }
+  for (const [key, button] of domCache.seats) {
+    const passenger = byPosition.get(key);
+    if (passenger) {
+      updateSeatButton(button, passenger);
     }
   }
-  cabinElement.append(lavatoryMarker("rear"));
+  for (const [row, aisleCell] of domCache.aisles) {
+    updateAisleCell(aisleCell, row);
+  }
+  for (const [id, marker] of domCache.lavatories) {
+    updateLavatoryMarker(marker, id);
+  }
+
   renderSelected();
   renderSummary();
   renderWatchlist();
@@ -779,54 +931,60 @@ function render() {
   renderLog();
 }
 
-function seatButton(passenger) {
+function makeSeatButton() {
   const button = document.createElement("button");
   button.type = "button";
+  button.className = "seat";
+  button.append(document.createTextNode(""), document.createElement("span"), document.createElement("span"));
+  return button;
+}
+
+function updateSeatButton(button, passenger) {
+  button.dataset.passengerId = passenger.id;
   button.className = `seat ${passenger.id === selectedPassengerId ? "selected" : ""} ${
     passenger.babyDiaperNeedsChange ? "diaper-needed" : ""
   }`;
   button.style.background = bladderColor(bladderPercent(passenger));
-  button.innerHTML = `${passenger.row}${passenger.seat}${
+  button.childNodes[0].nodeValue = `${passenger.row}${passenger.seat}${
     passenger.babyDiaperNeedsChange ? " 🍼" : ""
-  }<span>${Math.round(bladderPercent(passenger) * 100)}%</span><span>${passenger.state}</span>`;
-  button.addEventListener("click", () => {
-    selectedPassengerId = passenger.id;
-    render();
-  });
-  return button;
+  }`;
+  button.childNodes[1].textContent = `${Math.round(bladderPercent(passenger) * 100)}%`;
+  button.childNodes[2].textContent = passenger.state;
 }
 
-function aisle(row) {
+function makeAisleCell() {
   const div = document.createElement("div");
+  div.className = "aisle";
+  return div;
+}
+
+function updateAisleCell(div, row) {
   const cell = state.aisleCells.find((candidate) => candidate.row === row);
   const passengerIds = cell?.passengerIds ?? [];
   const cartId = cell?.beverageCartId;
   const occupants = [...passengerIds, cartId ? "cart" : ""].filter(Boolean);
   div.className = `aisle ${occupants.length > 0 ? "occupied" : ""} ${cartId ? "cart" : ""}`;
   div.textContent = occupants.length > 0 ? `${row} · ${occupants.join(",")}` : String(row);
+}
+
+function makeLavatoryMarker(id) {
+  const div = document.createElement("button");
+  div.type = "button";
+  div.className = "lavatory-marker";
+  div.dataset.lavatoryId = id;
   return div;
 }
 
-function lavatoryMarker(id) {
-  const div = document.createElement("button");
+function updateLavatoryMarker(div, id) {
   const lavatory = findLavatory(id);
-  div.type = "button";
-  div.className = "lavatory-marker";
   div.textContent = `${id.toUpperCase()} LAV · occupant ${lavatory.occupant ?? "-"} · queue ${lavatory.queue.join(", ") || "-"}`;
-  div.addEventListener("click", () => assign(selectedPassengerId, id));
-  return div;
 }
 
 function renderSelected() {
   const passenger = findPassenger(selectedPassengerId);
   selectedElement.innerHTML = `<strong>${passenger.id}</strong> seat ${passenger.row}${passenger.seat}<br>${passenger.archetype} · ${Math.round(bladderPercent(passenger) * 100)}% · ${passenger.state}<br>diaper: ${passenger.babyDiaperNeedsChange ? "needs change" : passenger.babyDiaperSecondsRemaining === undefined ? "-" : `${passenger.babyDiaperSecondsRemaining.toFixed(1)}s`} · changes: ${passenger.babyDiaperChangeCount}<br>assigned: ${passenger.assignedLavatoryId ?? "-"}<br>aisle row: ${passenger.aisleRow ?? "-"} · destination: ${passenger.destinationAisleRow ?? "-"} · queue: ${passenger.queuePosition ?? "-"}<br>movement step: ${passenger.movementStepSecondsRemaining.toFixed(1)}s · lavatory: ${passenger.lavatorySecondsRemaining.toFixed(1)}s<br>beverage multiplier: ${passenger.beverageRateMultiplier.toFixed(2)}x<br>blocking: ${passenger.blockingPassengerId ?? "-"} · cooldown: ${passenger.standCooldownSecondsRemaining.toFixed(1)}s`;
-  assignmentElement.innerHTML = "";
-  for (const lavatory of state.lavatories) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = `Send to ${lavatory.id}`;
-    button.addEventListener("click", () => assign(passenger.id, lavatory.id));
-    assignmentElement.append(button);
+  for (const button of domCache.assignButtons.values()) {
+    button.dataset.passengerId = passenger.id;
   }
 }
 
@@ -856,26 +1014,25 @@ function renderSummary() {
 }
 
 function renderWatchlist() {
-  watchlistElement.innerHTML = "";
   const watchedPassengers = [...state.passengers]
     .sort((left, right) => urgencyScore(right) - urgencyScore(left))
     .slice(0, 6);
 
-  for (const passenger of watchedPassengers) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "watchlist-card";
+  domCache.watchCards.forEach((button, index) => {
+    const passenger = watchedPassengers[index];
+    if (!passenger) {
+      button.style.display = "none";
+      delete button.dataset.passengerId;
+      return;
+    }
+    button.style.display = "";
+    button.dataset.passengerId = passenger.id;
     button.innerHTML = `<strong>${passenger.id}</strong> ${passenger.row}${passenger.seat} · ${Math.round(
       bladderPercent(passenger) * 100
     )}%<br>${passenger.state} · ${passenger.archetype}${
       passenger.babyDiaperNeedsChange ? " · diaper" : ""
     }`;
-    button.addEventListener("click", () => {
-      selectedPassengerId = passenger.id;
-      render();
-    });
-    watchlistElement.append(button);
-  }
+  });
 }
 
 function passengerStateCounts() {
@@ -961,6 +1118,7 @@ function startTurbulence() {
   }
 
   turbulence.hasAutoStarted = true;
+  turbulence.nextStartSeconds = undefined;
   turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn();
   turbulence.warningSecondsRemaining = config.turbulence.warningSeconds;
   turbulence.activeSecondsRemaining = 0;
@@ -979,9 +1137,8 @@ function updateTurbulence(dt) {
 
   if (
     turbulence.phase === "idle" &&
-    config.turbulence.autoStartSeconds !== undefined &&
-    !turbulence.hasAutoStarted &&
-    state.time >= config.turbulence.autoStartSeconds
+    turbulence.nextStartSeconds !== undefined &&
+    state.time >= turbulence.nextStartSeconds
   ) {
     startTurbulence();
   }
@@ -1000,8 +1157,23 @@ function updateTurbulence(dt) {
       turbulence.phase = "idle";
       turbulence.willTurnSeatBeltSignOn = undefined;
       log("Seat belt sign turned off.");
+      scheduleNextTurbulence(turbulence);
     }
   }
+}
+
+function scheduleNextTurbulence(turbulence) {
+  const repeat = config.turbulence ? config.turbulence.repeatIntervalSeconds : undefined;
+  if (!repeat) {
+    turbulence.nextStartSeconds = undefined;
+    return;
+  }
+  const [min, max] = repeat;
+  const span =
+    min === max
+      ? min
+      : min + (max - min) * (hash(`${config.seed}:turbulence:${state.time}:repeat`) / 4294967296);
+  turbulence.nextStartSeconds = state.time + span;
 }
 
 function finishTurbulenceWarning(turbulence) {
@@ -1011,6 +1183,7 @@ function finishTurbulenceWarning(turbulence) {
     turbulence.activeSecondsRemaining = 0;
     turbulence.willTurnSeatBeltSignOn = undefined;
     log("Turbulence passed without the seat belt sign.");
+    scheduleNextTurbulence(turbulence);
     return;
   }
 
@@ -1221,7 +1394,7 @@ function startAisleMovement(passenger, destinationAisleRow, startingAisleRow = p
   passenger.destinationAisleRow = destinationAisleRow;
   passenger.queuePosition = undefined;
   passenger.movementStepSecondsRemaining = config.minimumWalkSeconds;
-  if (isBeverageCartBlockingAisleStep(passenger)) {
+  if (isAisleStepBlocked(passenger)) {
     passenger.movementStepSecondsRemaining = 0;
   } else if (passenger.movementStepSecondsRemaining === 0) {
     passenger.movementStepSecondsRemaining = nextAisleStepSeconds(passenger);
@@ -1239,7 +1412,7 @@ function advanceAisleMovement(passenger, dt) {
         completeAisleMovement(passenger);
         break;
       }
-      if (isBeverageCartBlockingAisleStep(passenger)) {
+      if (isAisleStepBlocked(passenger)) {
         break;
       }
       passenger.movementStepSecondsRemaining = nextAisleStepSeconds(passenger);
@@ -1250,7 +1423,7 @@ function advanceAisleMovement(passenger, dt) {
       continue;
     }
 
-    if (isBeverageCartBlockingAisleStep(passenger)) {
+    if (isAisleStepBlocked(passenger)) {
       break;
     }
 
@@ -1297,17 +1470,44 @@ function nextAisleStepSeconds(passenger) {
   if (passenger.aisleRow === passenger.destinationAisleRow) {
     return 0;
   }
-  const nextRow = nextAisleRow(passenger);
-  if (isBeverageCartBlockingAisleStep(passenger)) {
+  if (isAisleStepBlocked(passenger)) {
     return 0;
   }
+  const nextRow = nextAisleRow(passenger);
+  // Same-direction walkers are hard-blocked (single file); any passenger still in
+  // the next cell here is opposite-bound or stationary, so we squeeze past slowly.
   const conflict = state.passengers.some(
     (candidate) =>
       candidate.id !== passenger.id &&
       isInAisle(candidate) &&
-      (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
+      candidate.aisleRow === nextRow
   );
   return config.walkSecondsPerRow * (conflict ? config.passingSlowdownMultiplier : 1);
+}
+
+function passengerAisleDirection(passenger) {
+  if (passenger.aisleRow === undefined || passenger.destinationAisleRow === undefined) {
+    return 0;
+  }
+  return Math.sign(passenger.destinationAisleRow - passenger.aisleRow);
+}
+
+function isAisleStepBlocked(passenger) {
+  if (isBeverageCartBlockingAisleStep(passenger)) {
+    return true;
+  }
+  const direction = passengerAisleDirection(passenger);
+  if (direction === 0) {
+    return false;
+  }
+  const nextRow = nextAisleRow(passenger);
+  return state.passengers.some(
+    (candidate) =>
+      candidate.id !== passenger.id &&
+      isInAisle(candidate) &&
+      candidate.aisleRow === nextRow &&
+      passengerAisleDirection(candidate) === direction
+  );
 }
 
 function isBeverageCartBlockingAisleStep(passenger) {
@@ -1315,7 +1515,11 @@ function isBeverageCartBlockingAisleStep(passenger) {
   const cart = state.beverageCart;
   if (!cart || !["moving", "servicing"].includes(cart.state)) return false;
   const nextRow = nextAisleRow(passenger);
-  return cart.currentAisleRow === passenger.aisleRow || cart.currentAisleRow === nextRow;
+  const wake = config.beverageCart && config.beverageCart.blockingWakeRows ? config.beverageCart.blockingWakeRows : 0;
+  return (
+    Math.abs(cart.currentAisleRow - passenger.aisleRow) <= wake ||
+    Math.abs(cart.currentAisleRow - nextRow) <= wake
+  );
 }
 
 function nextAisleRow(passenger) {
@@ -1329,9 +1533,11 @@ function isInAisle(passenger) {
 function refreshAisleCells() {
   state.aisleCells = buildAisleCells(state.passengers);
   if (state.beverageCart && ["moving", "servicing"].includes(state.beverageCart.state)) {
-    const cell = state.aisleCells.find((candidate) => candidate.row === state.beverageCart.currentAisleRow);
-    if (cell) {
-      cell.beverageCartId = state.beverageCart.id;
+    const wake = config.beverageCart && config.beverageCart.blockingWakeRows ? config.beverageCart.blockingWakeRows : 0;
+    for (const cell of state.aisleCells) {
+      if (Math.abs(cell.row - state.beverageCart.currentAisleRow) <= wake) {
+        cell.beverageCartId = state.beverageCart.id;
+      }
     }
   }
 }

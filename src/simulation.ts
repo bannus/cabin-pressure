@@ -47,14 +47,21 @@ export function createInitialState(config: LevelConfig): SimulationState {
       state: initialFillPercent >= config.bladder.requestThreshold ? "NeedsToGo" : "Seated",
       panicSeconds: 0,
       strikeCount: 0,
+      assignedLavatoryId: undefined,
+      aisleRow: undefined,
+      destinationAisleRow: undefined,
       movementStepSecondsRemaining: 0,
       movementSecondsRemaining: 0,
       lavatorySecondsRemaining: 0,
       lavatoryVisitCount: 0,
+      queuePosition: undefined,
       standSecondsRemaining: 0,
       sitSecondsRemaining: 0,
       standCooldownSecondsRemaining: 0,
+      blockingPassengerId: undefined,
       beverageRateMultiplier: 1,
+      beverageRateModifierStartSeconds: undefined,
+      beverageRateModifierEndSeconds: undefined,
       babyDiaperSecondsRemaining:
         archetype === "babyAttachedAdult" && config.babyDiaper !== undefined
           ? babyDiaperEventSeconds(config, `first:${index + 1}`)
@@ -238,6 +245,7 @@ export function startTurbulence(state: SimulationState): SimulationState {
   }
 
   turbulence.hasAutoStarted = true;
+  turbulence.nextStartSeconds = undefined;
   turbulence.willTurnSeatBeltSignOn = shouldTurnSeatBeltSignOn(state);
   turbulence.warningSecondsRemaining = requireTurbulenceConfig(state).warningSeconds;
   turbulence.activeSecondsRemaining = 0;
@@ -710,6 +718,26 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
     dt;
 
   const percent = bladderPercent(passenger);
+  const isDesperate = percent >= state.config.bladder.desperateThreshold;
+
+  // The desperation timer runs whenever a passenger is over the desperate
+  // threshold, regardless of whether they are still seated or already walking to
+  // or queued for a lavatory. A passenger who is making progress keeps their trip
+  // and their place in line, but a too-slow queue can still cause a strike.
+  if (isDesperate) {
+    if (passenger.panicSeconds === 0) {
+      addEvent(
+        state,
+        "panic",
+        `${passenger.id} at ${passenger.row}${passenger.seat} is desperate.`,
+        passenger.id
+      );
+    }
+    passenger.panicSeconds += dt;
+  } else {
+    passenger.panicSeconds = 0;
+  }
+
   const previousState = passenger.state;
   const nextState = nextPassengerState(state, passenger, percent);
 
@@ -723,33 +751,19 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
         passenger.id
       );
     }
-    if (nextState === "Panic") {
-      abandonLavatoryAssignment(state, passenger);
-      passenger.panicSeconds = 0;
-      addEvent(
-        state,
-        "panic",
-        `${passenger.id} at ${passenger.row}${passenger.seat} is in panic.`,
-        passenger.id
-      );
-    }
   }
 
-  if (passenger.state === "Panic") {
-    passenger.panicSeconds += dt;
-  }
-
-  if (
-    passenger.state === "Panic" &&
-    passenger.panicSeconds >= state.config.loss.panicGraceSeconds
-  ) {
+  if (isDesperate && passenger.panicSeconds >= state.config.loss.panicGraceSeconds) {
     state.strikes += 1;
     passenger.strikeCount += 1;
     passenger.rawBladder = passenger.capacity * state.config.loss.strikeRecoveryFillPercent;
     passenger.panicSeconds = 0;
+    // After the accident the passenger no longer needs the lavatory, so any
+    // in-progress trip is abandoned and they settle based on their relieved level.
+    abandonLavatoryAssignment(state, passenger);
     passenger.state =
       passenger.babyDiaperNeedsChange ||
-      state.config.loss.strikeRecoveryFillPercent >= state.config.bladder.requestThreshold
+      bladderPercent(passenger) >= state.config.bladder.requestThreshold
         ? "NeedsToGo"
         : "Seated";
 
@@ -775,23 +789,25 @@ function nextPassengerState(
   passenger: Passenger,
   percent: number
 ): PassengerState {
-  if (percent >= 1) {
-    return "Panic";
-  }
-  if (passenger.babyDiaperNeedsChange && passenger.state === "Seated") {
-    return "NeedsToGo";
-  }
+  // Preserve states that represent an in-progress lavatory trip. A passenger who
+  // is walking, queued, or otherwise committed keeps their trip even once they
+  // grow desperate; the strike timer (handled in updatePassengerBladder) is what
+  // penalizes a trip that takes too long, not a forced switch into Panic.
   if (
     passenger.state === "WalkingToLavatory" ||
     passenger.state === "WaitingForSeatBlockers" ||
     passenger.state === "Standing" ||
     passenger.state === "QueuedForLavatory" ||
     passenger.state === "ReturningToSeat" ||
-    passenger.state === "Sitting"
+    passenger.state === "Sitting" ||
+    passenger.state === "UsingLavatory"
   ) {
     return passenger.state;
   }
-  if (passenger.state === "Panic") {
+
+  // Idle states (Seated, NeedsToGo, Panic): a desperate passenger who is not on
+  // their way anywhere visibly panics, otherwise they settle by bladder level.
+  if (percent >= state.config.bladder.desperateThreshold) {
     return "Panic";
   }
   if (passenger.babyDiaperNeedsChange) {
@@ -819,7 +835,7 @@ function startAisleMovement(
     destinationAisleRow
   );
 
-  if (isBeverageCartBlockingAisleStep(state, passenger)) {
+  if (isAisleStepBlocked(state, passenger)) {
     passenger.movementStepSecondsRemaining = 0;
   } else if (passenger.movementStepSecondsRemaining === 0) {
     passenger.movementStepSecondsRemaining = nextAisleStepSeconds(state, passenger);
@@ -836,7 +852,7 @@ function advanceAisleMovement(state: SimulationState, passenger: Passenger, dt: 
         completeAisleMovement(state, passenger);
         break;
       }
-      if (isBeverageCartBlockingAisleStep(state, passenger)) {
+      if (isAisleStepBlocked(state, passenger)) {
         break;
       }
       passenger.movementStepSecondsRemaining = nextAisleStepSeconds(state, passenger);
@@ -848,7 +864,7 @@ function advanceAisleMovement(state: SimulationState, passenger: Passenger, dt: 
       continue;
     }
 
-    if (isBeverageCartBlockingAisleStep(state, passenger)) {
+    if (isAisleStepBlocked(state, passenger)) {
       break;
     }
 
@@ -903,20 +919,52 @@ function nextAisleStepSeconds(state: SimulationState, passenger: Passenger): num
     return 0;
   }
 
-  const nextRow = nextAisleRow(passenger);
-  const baseSeconds = state.config.lavatory.walkSecondsPerRow;
-  if (isBeverageCartBlockingAisleStep(state, passenger)) {
+  if (isAisleStepBlocked(state, passenger)) {
     return 0;
   }
+
+  const baseSeconds = state.config.lavatory.walkSecondsPerRow;
+  const nextRow = nextAisleRow(passenger);
+  // Same-direction walkers are hard-blocked elsewhere (single file), so any passenger
+  // still occupying the next cell here is heading the opposite way or standing still:
+  // we can squeeze past, but only at the (heavy) passing slowdown rate.
   const hasPassingConflict = state.passengers.some(
     (candidate) =>
       candidate.id !== passenger.id &&
       isInAisle(candidate) &&
-      (candidate.aisleRow === passenger.aisleRow || candidate.aisleRow === nextRow)
+      candidate.aisleRow === nextRow
   );
   return hasPassingConflict
     ? baseSeconds * (state.config.lavatory.passingSlowdownMultiplier ?? 2)
     : baseSeconds;
+}
+
+function passengerAisleDirection(passenger: Passenger): number {
+  if (passenger.aisleRow === undefined || passenger.destinationAisleRow === undefined) {
+    return 0;
+  }
+  return Math.sign(passenger.destinationAisleRow - passenger.aisleRow);
+}
+
+function isAisleStepBlocked(state: SimulationState, passenger: Passenger): boolean {
+  if (isBeverageCartBlockingAisleStep(state, passenger)) {
+    return true;
+  }
+
+  const direction = passengerAisleDirection(passenger);
+  if (direction === 0) {
+    return false;
+  }
+
+  const nextRow = nextAisleRow(passenger);
+  // Single file: you cannot overtake another passenger walking the same direction.
+  return state.passengers.some(
+    (candidate) =>
+      candidate.id !== passenger.id &&
+      isInAisle(candidate) &&
+      candidate.aisleRow === nextRow &&
+      passengerAisleDirection(candidate) === direction
+  );
 }
 
 function isBeverageCartBlockingAisleStep(state: SimulationState, passenger: Passenger): boolean {
@@ -930,7 +978,11 @@ function isBeverageCartBlockingAisleStep(state: SimulationState, passenger: Pass
   }
 
   const nextRow = nextAisleRow(passenger);
-  return cart.currentAisleRow === passenger.aisleRow || cart.currentAisleRow === nextRow;
+  const wake = state.config.beverageCart?.blockingWakeRows ?? 0;
+  return (
+    Math.abs(cart.currentAisleRow - passenger.aisleRow) <= wake ||
+    Math.abs(cart.currentAisleRow - nextRow) <= wake
+  );
 }
 
 function nextAisleRow(passenger: Passenger): number {
@@ -963,19 +1015,28 @@ function estimateAisleMovementSeconds(
 }
 
 function buildAisleCells(config: LevelConfig, passengers: Passenger[]): AisleCell[] {
-  const cells: AisleCell[] = [];
   const lavatoryRows = config.aircraft.lavatories.map((lavatory) => lavatory.row);
   const minRow = Math.min(1, ...lavatoryRows);
   const maxRow = Math.max(config.aircraft.rows, ...lavatoryRows);
+
+  const cells: AisleCell[] = [];
+  const cellsByRow = new Map<number, AisleCell>();
   for (let row = minRow; row <= maxRow; row += 1) {
-    cells.push({
-      row,
-      passengerIds: passengers
-        .filter((passenger) => isInAisle(passenger) && passenger.aisleRow === row)
-        .map((passenger) => passenger.id),
-      beverageCartId: undefined
-    });
+    const cell: AisleCell = { row, passengerIds: [], beverageCartId: undefined };
+    cells.push(cell);
+    cellsByRow.set(row, cell);
   }
+
+  for (const passenger of passengers) {
+    if (passenger.aisleRow === undefined || !isInAisle(passenger)) {
+      continue;
+    }
+    const cell = cellsByRow.get(passenger.aisleRow);
+    if (cell !== undefined) {
+      cell.passengerIds.push(passenger.id);
+    }
+  }
+
   return cells;
 }
 
@@ -985,11 +1046,11 @@ function refreshAisleCells(state: SimulationState): void {
     state.beverageCart !== undefined &&
     (state.beverageCart.state === "moving" || state.beverageCart.state === "servicing")
   ) {
-    const cartCell = state.aisleCells.find(
-      (cell) => cell.row === state.beverageCart?.currentAisleRow
-    );
-    if (cartCell !== undefined) {
-      cartCell.beverageCartId = state.beverageCart.id;
+    const wake = state.config.beverageCart?.blockingWakeRows ?? 0;
+    for (const cell of state.aisleCells) {
+      if (Math.abs(cell.row - state.beverageCart.currentAisleRow) <= wake) {
+        cell.beverageCartId = state.beverageCart.id;
+      }
     }
   }
 }
@@ -1020,7 +1081,8 @@ function buildTurbulence(config: LevelConfig): Turbulence | undefined {
     phase: "idle",
     warningSecondsRemaining: 0,
     activeSecondsRemaining: 0,
-    hasAutoStarted: false
+    hasAutoStarted: false,
+    nextStartSeconds: config.turbulence.autoStartSeconds
   };
 }
 
@@ -1066,9 +1128,8 @@ function updateTurbulenceProgress(state: SimulationState, dt: number): void {
 
   if (
     turbulence.phase === "idle" &&
-    turbulenceConfig.autoStartSeconds !== undefined &&
-    !turbulence.hasAutoStarted &&
-    state.time >= turbulenceConfig.autoStartSeconds
+    turbulence.nextStartSeconds !== undefined &&
+    state.time >= turbulence.nextStartSeconds
   ) {
     startTurbulence(state);
   }
@@ -1087,6 +1148,7 @@ function updateTurbulenceProgress(state: SimulationState, dt: number): void {
       turbulence.phase = "idle";
       turbulence.willTurnSeatBeltSignOn = undefined;
       addEvent(state, "seatBeltSignOff", "Seat belt sign turned off.");
+      scheduleNextTurbulence(state, turbulence);
     }
   }
 }
@@ -1098,6 +1160,7 @@ function finishTurbulenceWarning(state: SimulationState, turbulence: Turbulence)
     turbulence.activeSecondsRemaining = 0;
     turbulence.willTurnSeatBeltSignOn = undefined;
     addEvent(state, "seatBeltSignSkipped", "Turbulence passed without the seat belt sign.");
+    scheduleNextTurbulence(state, turbulence);
     return;
   }
 
@@ -1141,6 +1204,20 @@ function forceAislePassengersToReturn(state: SimulationState): void {
   }
 
   refreshAisleCells(state);
+}
+
+function scheduleNextTurbulence(state: SimulationState, turbulence: Turbulence): void {
+  const repeat = requireTurbulenceConfig(state).repeatIntervalSeconds;
+  if (repeat === undefined) {
+    turbulence.nextStartSeconds = undefined;
+    return;
+  }
+  const [min, max] = repeat;
+  const span =
+    min === max
+      ? min
+      : min + (max - min) * hashString(`${state.config.seed}:turbulence:${state.time}:repeat`);
+  turbulence.nextStartSeconds = state.time + span;
 }
 
 function isSeatBeltSignOn(state: SimulationState): boolean {

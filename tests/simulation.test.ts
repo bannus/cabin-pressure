@@ -2,10 +2,17 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import test from "node:test";
-import { tinyReadableCabin } from "../src/config";
+import { tinyReadableCabin, mediumCabin } from "../src/config";
 import { estimateLavatoryDemand } from "../src/level-metrics";
-import { runBotSimulation, botStep } from "../src/bot";
-import { compareConfigs, defaultSeeds, runBatch } from "../src/batch";
+import {
+  runBotSimulation,
+  botStep,
+  greedyStrategy,
+  panicStrategy,
+  fixedLavatoryStrategy,
+  flowControlStrategy
+} from "../src/bot";
+import { compareConfigs, defaultSeeds, runBatch, sweepConfigs, sweepActionsPerMinute } from "../src/batch";
 import {
   assignPassengerToLavatory,
   createInitialState,
@@ -372,16 +379,22 @@ test("lavatory queues expose physical queue positions", () => {
   assignPassengerToLavatory(state, "P001", "front");
   assignPassengerToLavatory(state, "P002", "front");
   assignPassengerToLavatory(state, "P003", "front");
-  tick(state, 1);
+  for (let step = 0; step < 4; step += 1) {
+    tick(state, 1);
+  }
 
-  assert.equal(state.passengers[0]?.state, "UsingLavatory");
+  // The aisle is single file, so the passenger physically nearest the lavatory
+  // (P003 in row 3) reaches it first and the others line up behind in physical
+  // order — assignment order does not let anyone overtake.
+  assert.equal(state.passengers[2]?.state, "UsingLavatory");
   assert.equal(state.passengers[1]?.state, "QueuedForLavatory");
   assert.equal(state.passengers[1]?.queuePosition, 1);
   assert.equal(state.passengers[1]?.aisleRow, 3);
-  assert.equal(state.passengers[2]?.queuePosition, 2);
-  assert.equal(state.passengers[2]?.aisleRow, 2);
+  assert.equal(state.passengers[0]?.state, "QueuedForLavatory");
+  assert.equal(state.passengers[0]?.queuePosition, 2);
+  assert.equal(state.passengers[0]?.aisleRow, 2);
   assert.deepEqual(state.aisleCells.find((cell) => cell.row === 3)?.passengerIds, ["P002"]);
-  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 2)?.passengerIds, ["P003"]);
+  assert.deepEqual(state.aisleCells.find((cell) => cell.row === 2)?.passengerIds, ["P001"]);
 });
 
 test("passing conflicts slow aisle movement", () => {
@@ -419,7 +432,61 @@ test("passing conflicts slow aisle movement", () => {
   assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 3);
 });
 
-test("passengers can panic while walking to a lavatory", () => {
+test("single file aisle: a follower cannot overtake a same-direction walker", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 4,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 2 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 3.5,
+      useDurationSeconds: [5, 5]
+    },
+    seatBlockers: instantSeatBlockers
+  };
+  const state = createInitialState(config);
+
+  // Leader (P001) is one row ahead of the follower (P002); both walk toward the
+  // front lavatory (row 0), i.e. the same direction.
+  const leader = state.passengers[0]!;
+  const follower = state.passengers[1]!;
+  leader.state = "WalkingToLavatory";
+  leader.assignedLavatoryId = "front";
+  leader.aisleRow = 1;
+  leader.destinationAisleRow = 0;
+  leader.movementStepSecondsRemaining = 1;
+  follower.state = "WalkingToLavatory";
+  follower.assignedLavatoryId = "front";
+  follower.aisleRow = 2;
+  follower.destinationAisleRow = 0;
+  follower.movementStepSecondsRemaining = 0;
+
+  // The follower's next cell (row 1) is occupied by the same-direction leader, so
+  // the follower is blocked and makes no progress while the leader is ahead of it.
+  tick(state, 0.5);
+  assert.equal(follower.aisleRow, 2);
+  assert.equal(follower.state, "WalkingToLavatory");
+
+  // Once the leader has cleared the aisle into the lavatory, the follower advances.
+  for (let step = 0; step < 4; step += 1) {
+    tick(state, 1);
+  }
+  assert.ok(follower.aisleRow! < 2 || follower.state !== "WalkingToLavatory");
+});
+
+test("desperate passengers keep walking to a lavatory and can still strike", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
     durationSeconds: 10,
@@ -440,20 +507,33 @@ test("passengers can panic while walking to a lavatory", () => {
       walkSecondsPerRow: 0,
       useDurationSeconds: [2, 2]
     },
-    seatBlockers: instantSeatBlockers
+    seatBlockers: instantSeatBlockers,
+    loss: {
+      panicGraceSeconds: 1,
+      maxStrikes: 5,
+      strikeRecoveryFillPercent: 0.65
+    }
   };
   const state = createInitialState(config);
 
   assignPassengerToLavatory(state, "P001", "front");
   tick(state, 0.25);
 
-  assert.equal(state.passengers[0]?.state, "Panic");
+  // A desperate passenger keeps their trip instead of abandoning it.
+  assert.equal(state.passengers[0]?.state, "WalkingToLavatory");
+  assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
+  assert.equal(state.passengers[0]?.panicSeconds, 0.25);
+
+  // The five-second walk cannot finish before the one-second grace, so a strike
+  // fires while the passenger is still in transit.
+  tick(state, 1);
+
+  assert.equal(state.passengers[0]?.strikeCount, 1);
   assert.equal(state.passengers[0]?.assignedLavatoryId, undefined);
-  assert.equal(state.passengers[0]?.movementSecondsRemaining, 0);
-  assert.equal(state.events.at(-1)?.type, "panic");
+  assert.equal(state.lavatories[0]?.queue.includes("P001"), false);
 });
 
-test("passengers can panic while queued for a lavatory", () => {
+test("desperate passengers keep their place in the lavatory queue", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
     durationSeconds: 10,
@@ -474,7 +554,11 @@ test("passengers can panic while queued for a lavatory", () => {
       walkSecondsPerRow: 0,
       useDurationSeconds: [5, 5]
     },
-    seatBlockers: instantSeatBlockers
+    seatBlockers: instantSeatBlockers,
+    loss: {
+      ...tinyReadableCabin.loss,
+      panicGraceSeconds: 8
+    }
   };
   const state = createInitialState(config);
 
@@ -482,10 +566,12 @@ test("passengers can panic while queued for a lavatory", () => {
   assignPassengerToLavatory(state, "P002", "front");
   tick(state, 1);
 
-  assert.equal(state.passengers[1]?.state, "Panic");
-  assert.equal(state.passengers[1]?.assignedLavatoryId, undefined);
-  assert.deepEqual(state.lavatories[0]?.queue, []);
-  assert.equal(state.events.at(-1)?.type, "panic");
+  // The queued passenger is desperate but keeps their assignment and queue spot
+  // rather than abandoning it.
+  assert.equal(state.passengers[1]?.state, "QueuedForLavatory");
+  assert.equal(state.passengers[1]?.assignedLavatoryId, "front");
+  assert.deepEqual(state.lavatories[0]?.queue, ["P002"]);
+  assert.ok((state.passengers[1]?.panicSeconds ?? 0) > 0);
 });
 
 test("inner-seat passengers require blockers to stand before exiting", () => {
@@ -866,6 +952,38 @@ test("turbulence warning can pass without turning on the seat belt sign", () => 
   assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
 });
 
+test("repeatIntervalSeconds re-arms turbulence for periodic seat-belt pulses", () => {
+  const config: LevelConfig = {
+    ...tinyReadableCabin,
+    durationSeconds: 60,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 1,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 1 },
+    turbulence: {
+      warningSeconds: 1,
+      durationSeconds: [2, 2],
+      seatBeltSignChance: 1,
+      autoStartSeconds: 5,
+      repeatIntervalSeconds: [4, 4]
+    }
+  };
+  const state = createInitialState(config);
+
+  for (let i = 0; i < 600; i += 1) {
+    tick(state, 0.1);
+  }
+
+  const pulses = state.events.filter((event) => event.type === "seatBeltSignOn");
+  assert.ok(
+    pulses.length >= 3,
+    `expected multiple recurring seat-belt pulses, saw ${pulses.length}`
+  );
+});
+
 test("baby-attached adults get diaper events with long lavatory tasks", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
@@ -1113,6 +1231,178 @@ test("bot CLI prints a config comparison", () => {
   assert.match(result.stdout, /\[baseline\]/);
   assert.match(result.stdout, /\[single-lav\]/);
   assert.match(result.stdout, /winRate=/);
+});
+
+test("medium cabin config is valid and fully populated", () => {
+  const state = createInitialState(mediumCabin);
+  assert.equal(state.passengers.length, 180);
+  assert.equal(state.lavatories.length, 3);
+  assert.ok(state.beverageCart !== undefined);
+  assert.ok(state.turbulence !== undefined);
+});
+
+test("bot run reports fun metrics within valid ranges", () => {
+  const result = runBotSimulation(
+    { ...mediumCabin, durationSeconds: 80 },
+    { dt: 0.5, startBeverageCart: true }
+  );
+
+  assert.ok(result.lavatoryUtilization >= 0 && result.lavatoryUtilization <= 1);
+  assert.ok(result.busyFraction >= 0 && result.busyFraction <= 1);
+  assert.ok(result.peakConcurrentDemand >= 0 && result.peakConcurrentDemand <= 180);
+  assert.ok(result.meanConcurrentDemand <= result.peakConcurrentDemand);
+  assert.equal(result.strategy, "greedy");
+});
+
+test("acting early (greedy) uses lavatories more than reacting late (panic)", () => {
+  const seeds = defaultSeeds(3, 500);
+  const config = { ...mediumCabin, durationSeconds: 120 };
+  const options = { seeds, dt: 0.5, startBeverageCart: true };
+
+  const greedy = runBatch(config, { ...options, strategy: greedyStrategy });
+  const panic = runBatch(config, { ...options, strategy: panicStrategy });
+
+  assert.ok(
+    greedy.averageLavatoryUtilization > panic.averageLavatoryUtilization,
+    `expected greedy util ${greedy.averageLavatoryUtilization} > panic util ${panic.averageLavatoryUtilization}`
+  );
+});
+
+test("blockingWakeRows widens the cart's impassable span in the aisle", () => {
+  const makeConfig = (blockingWakeRows: number): LevelConfig => ({
+    ...tinyReadableCabin,
+    durationSeconds: 30,
+    aircraft: {
+      ...tinyReadableCabin.aircraft,
+      rows: 3,
+      seatLayout: ["A"],
+      lavatories: [{ id: "front", row: 0 }]
+    },
+    passengerMix: { normal: 3 },
+    bladder: {
+      ...tinyReadableCabin.bladder,
+      initialFillRange: [0.8, 0.8],
+      baseFillPerSecond: 0
+    },
+    lavatory: {
+      minimumWalkSeconds: 0,
+      walkSecondsPerRow: 1,
+      passingSlowdownMultiplier: 4,
+      useDurationSeconds: [5, 5]
+    },
+    beverageCart: {
+      serviceRows: [1],
+      rowServiceSeconds: [10, 10],
+      moveSecondsPerRow: 1,
+      bladderRateMultiplier: 2,
+      bladderRateDelaySeconds: 0,
+      bladderRateDurationSeconds: 1,
+      blockingWakeRows
+    },
+    seatBlockers: instantSeatBlockers
+  });
+
+  // Passenger two rows away from a cart parked at row 1.
+  const walkOneStep = (blockingWakeRows: number): number | undefined => {
+    const state = createInitialState(makeConfig(blockingWakeRows));
+    startBeverageCart(state);
+    assert.equal(state.beverageCart?.currentAisleRow, 1);
+    assignPassengerToLavatory(state, "P003", "front");
+    tick(state, 1);
+    return state.passengers.find((passenger) => passenger.id === "P003")?.aisleRow;
+  };
+
+  // Wake 0: only the cart's own cell blocks, so the passenger advances to row 2.
+  assert.equal(walkOneStep(0), 2);
+  // Wake 1: the cell adjacent to the cart is also impassable, so the passenger holds at row 3.
+  assert.equal(walkOneStep(1), 3);
+});
+
+test("flow-control bot beats greedy by metering aisle congestion", () => {
+  const seeds = defaultSeeds(5, 24680);
+  const options = { seeds, dt: 0.2, startBeverageCart: true };
+
+  const flow = runBatch(mediumCabin, { ...options, strategy: flowControlStrategy });
+  const greedy = runBatch(mediumCabin, { ...options, strategy: greedyStrategy });
+
+  assert.ok(
+    flow.winRate > greedy.winRate,
+    `expected flow-control winRate ${flow.winRate} > greedy winRate ${greedy.winRate}`
+  );
+  assert.ok(
+    flow.averageStrikes < greedy.averageStrikes,
+    `expected flow-control to take fewer strikes than greedy (${flow.averageStrikes} vs ${greedy.averageStrikes})`
+  );
+});
+
+test("sweepConfigs returns one cell per config-by-strategy pair", () => {
+  const seeds = defaultSeeds(2, 11);
+  const config = { ...mediumCabin, durationSeconds: 80 };
+  const variants = [
+    { label: "two", config: { ...config, aircraft: { ...config.aircraft, lavatories: config.aircraft.lavatories.slice(0, 2) } } },
+    { label: "three", config }
+  ];
+
+  const cells = sweepConfigs(variants, [greedyStrategy, fixedLavatoryStrategy], {
+    seeds,
+    dt: 0.5,
+    startBeverageCart: true
+  });
+
+  assert.equal(cells.length, 4);
+  assert.deepEqual(
+    cells.map((cell) => `${cell.label}/${cell.strategy}`),
+    ["two/greedy", "two/fixed-lavatory", "three/greedy", "three/fixed-lavatory"]
+  );
+});
+
+test("an APM cap limits how many assignments the bot makes per minute", () => {
+  // Start nearly everyone just below the request threshold so a large burst of
+  // demand appears within seconds, making the assignment cap clearly bite.
+  const config: LevelConfig = {
+    ...mediumCabin,
+    durationSeconds: 120,
+    bladder: { ...mediumCabin.bladder, initialFillRange: [0.65, 0.69] }
+  };
+
+  const unlimited = runBotSimulation(config, { dt: 0.5, startBeverageCart: true });
+  const capped = runBotSimulation(config, {
+    dt: 0.5,
+    startBeverageCart: true,
+    actionsPerMinute: 10
+  });
+
+  assert.equal(unlimited.actionsPerMinute, Number.POSITIVE_INFINITY);
+  assert.equal(capped.actionsPerMinute, 10);
+  assert.ok(
+    capped.assignmentsMade < unlimited.assignmentsMade,
+    `expected capped ${capped.assignmentsMade} < unlimited ${unlimited.assignmentsMade}`
+  );
+
+  // 10 assignments/minute over the elapsed time is the budget, plus at most one
+  // assignment of rounding slack.
+  const elapsedMinutes = capped.finalTime / 60;
+  assert.ok(capped.assignmentsMade <= Math.ceil(10 * elapsedMinutes) + 1);
+});
+
+test("sweepActionsPerMinute returns one cell per APM value with that cap recorded", () => {
+  const seeds = defaultSeeds(2, 13);
+  const config = { ...mediumCabin, durationSeconds: 80 };
+
+  const cells = sweepActionsPerMinute(config, [15, 30, 60], {
+    seeds,
+    dt: 0.5,
+    startBeverageCart: true
+  });
+
+  assert.deepEqual(
+    cells.map((cell) => cell.actionsPerMinute),
+    [15, 30, 60]
+  );
+  for (const cell of cells) {
+    assert.equal(cell.summary.actionsPerMinute, cell.actionsPerMinute);
+    assert.equal(cell.summary.runCount, 2);
+  }
 });
 
 async function waitForOutput(

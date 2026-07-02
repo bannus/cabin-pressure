@@ -92,6 +92,13 @@ export interface BeverageCartConfig {
   bladderRateDelaySeconds: number;
   bladderRateDurationSeconds: number;
   autoStart?: boolean;
+  /**
+   * Extra rows on each side of the cart that are also impassable, modelling the
+   * congestion wake of a cart blocking the aisle. 0 (default) blocks only the
+   * cart's own cell; higher values make the cart a wider moving roadblock that
+   * gates aisle access around it.
+   */
+  blockingWakeRows?: number;
 }
 
 export type BeverageCartState = "ready" | "moving" | "servicing" | "complete";
@@ -102,6 +109,12 @@ export interface TurbulenceConfig {
   durationSeconds: [number, number];
   seatBeltSignChance: number;
   autoStartSeconds?: number;
+  /**
+   * When set, turbulence re-arms after each event ends, with the next auto-start
+   * scheduled this many seconds later (random within the range). Enables periodic
+   * seat-belt-sign surges instead of a single one-shot event.
+   */
+  repeatIntervalSeconds?: [number, number];
 }
 
 export interface BabyDiaperConfig {
@@ -126,6 +139,7 @@ export interface Turbulence {
   warningSecondsRemaining: number;
   activeSecondsRemaining: number;
   hasAutoStarted: boolean;
+  nextStartSeconds?: number;
   willTurnSeatBeltSignOn?: boolean;
 }
 

@@ -6,7 +6,7 @@ escalating readable chaos.
 
 ## Current milestone
 
-Milestones 2, 2.5, 3, 4, 5, 6, 7, 8, and 9 are implemented:
+Milestones 2, 2.5, 3, 4, 5, 6, 7, 8, 9, and 10 are implemented:
 
 - deterministic seeded passenger generation
 - bladder fill by passenger archetype
@@ -19,6 +19,7 @@ Milestones 2, 2.5, 3, 4, 5, 6, 7, 8, and 9 are implemented:
 - baby-attached adult diaper events, long lavatory changes, and debugger indicators
 - expanded browser playtest UI with preset configs, seed input, debug actions, summaries, and watchlists
 - automated bot runs with batch simulation, aggregate metrics, and config comparison
+- fun evaluation harness with multiple bot strategies, fun metrics, and difficulty sweeps
 - CLI simulation output with optional lavatory assignments
 - browser debugger for cabin readability and lavatory queue playtesting
 
@@ -29,6 +30,7 @@ npm run build
 npm test
 npm run simulate
 npm run bot
+npm run evaluate
 npm run debugger
 ```
 
@@ -53,6 +55,28 @@ The bot assigns the neediest passengers to load-balanced nearest lavatories each
 tick, then prints win rates and averages for the baseline cabin and a harder
 single-lavatory variant.
 
+### Fun evaluation harness
+
+Evaluate whether a level is fun on the medium cabin (180 passengers):
+
+```sh
+npm run evaluate
+npm run evaluate -- --seeds 30 --duration 360 --dt 0.1
+```
+
+It reports four things:
+
+- **Decision depth** — win-rate gap between a smart `greedy` bot and naive
+  `panic`/`fixed-lavatory` bots. A large gap means assignment decisions matter.
+- **Fun metrics** — lavatory utilization, busy fraction, peak concurrent demand,
+  demand spikiness, and cross-seed variance (repetitiveness).
+- **Difficulty sweep** — win rate across lavatory-supply variants, to find a
+  configuration where good play wins ~60–80% and clearly beats naive play.
+- **Actions-per-minute required** — win rate when the bot is capped to a human-like
+  number of assignments per minute, to estimate how twitchy the level is. A level
+  that needs very high APM (or that even an unlimited-APM bot cannot win) is not
+  yet tuned for a human player.
+
 ### Interactive CLI mode
 
 Run with `--interactive` to play a live round from the terminal:
@@ -74,7 +98,11 @@ Available commands while running:
 - `quit`
 
 The browser debugger starts at `http://localhost:4173` by default. Set `PORT`
-to use another port.
+to use another port. Use the config picker to manually playtest the
+**Medium Cabin (rebalanced)** preset (180 passengers, front + two rear
+lavatories). Note the debugger runs its own client-side engine, so outcomes
+approximate but do not exactly match the `src/simulation.ts` engine used by the
+CLI, bot, and evaluation harness.
 
 ## Design docs
 
