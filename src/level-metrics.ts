@@ -19,8 +19,11 @@ export interface LavatoryDemandEstimate {
 export function estimateLavatoryDemand(config: LevelConfig): LavatoryDemandEstimate {
   const seatCount = config.aircraft.rows * config.aircraft.seatLayout.length;
   const passengerCounts = buildPassengerCounts(config, seatCount);
-  const averageInitialFill =
-    (config.bladder.initialFillRange[0] + config.bladder.initialFillRange[1]) / 2;
+  const distribution = config.bladder.initialFillDistribution;
+  const averageInitialFill = distribution === undefined
+    ? (config.bladder.initialFillRange[0] + config.bladder.initialFillRange[1]) / 2
+    : distribution.reduce((sum, bucket) => sum + bucket.weight * (bucket.range[0] + bucket.range[1]) / 2, 0) /
+      distribution.reduce((sum, bucket) => sum + bucket.weight, 0);
   const averageLavatoryUseSeconds =
     (config.lavatory.useDurationSeconds[0] + config.lavatory.useDurationSeconds[1]) / 2;
 

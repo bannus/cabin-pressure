@@ -1,3 +1,4 @@
 node_modules/
 dist/
+public/playtest.js
 *.log

@@ -1,5 +1,22 @@
 # Milestone roadmap
 
+## Current: tactical playtest iteration
+
+The browser debugger is now The Drinks Run, a focused 16-passenger scenario.
+It bundles the shared TypeScript engine rather than duplicating rules.
+Panic persists across movement and commands; landing checks service as well
+as strikes. Cart parking trades traffic clearance against service time,
+diaper calls have deadlines, and turbulence gives a 20-second planning window.
+The UI adds quick dispatch, entry/deadline estimates, incident ratings, retry,
+next-seed selection, and a compact mobile layout.
+
+`npm run tune` compares six action-rate-limited policies, including the actual
+UI-assisted reactive policy and cart ablations. Configuration sweeps and
+fresh-seed comparisons are documented in the level configuration guide.
+The next milestone is human playtesting, not additional simulation systems.
+
+The milestones below record the original implementation sequence.
+
 ## Milestone 0: Pure data model
 
 Create and print a cabin with seeded passenger generation and bladder levels.

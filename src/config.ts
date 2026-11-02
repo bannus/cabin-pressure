@@ -63,6 +63,62 @@ export const tinyReadableCabin: LevelConfig = {
   }
 };
 
+export const pressureFlight: LevelConfig = {
+  ...tinyReadableCabin,
+  id: "the-drinks-run",
+  name: "The Drinks Run",
+  seed: 42,
+  durationSeconds: 120,
+  aircraft: {
+    rows: 4,
+    seatLayout: ["A", "B", "C", "D"],
+    lavatories: [{ id: "front", row: 0 }, { id: "rear", row: 5 }]
+  },
+  passengerMix: { normal: 11, smallBladder: 3, bigBladder: 1, babyAttachedAdult: 1 },
+  bladder: {
+    initialFillRange: [0.15, 0.75],
+    initialFillDistribution: [
+      { weight: 5, range: [0.15, 0.4] },
+      { weight: 3, range: [0.4, 0.65] },
+      { weight: 2, range: [0.65, 0.78] }
+    ],
+    baseFillPerSecond: 100 / 180,
+    requestThreshold: 0.65,
+    desperateThreshold: 0.9
+  },
+  lavatory: {
+    minimumWalkSeconds: 0.5,
+    walkSecondsPerRow: 0.8,
+    passingSlowdownMultiplier: 1.6,
+    useDurationSeconds: [8, 12]
+  },
+  seatBlockers: { standSeconds: 0.7, sitSeconds: 0.7, standCooldownSeconds: 1.5 },
+  beverageCart: {
+    serviceRows: [4, 3, 2, 1],
+    rowServiceSeconds: [17, 19],
+    moveSecondsPerRow: 1,
+    bladderRateMultiplier: 1.4,
+    bladderRateDelaySeconds: 12,
+    bladderRateDurationSeconds: 35,
+    autoStart: true,
+    requiredPassengersServed: 16,
+    maneuverSeconds: 2
+  },
+  turbulence: {
+    warningSeconds: 20,
+    durationSeconds: [10, 10],
+    seatBeltSignChance: 1,
+    autoStartSeconds: 45
+  },
+  babyDiaper: {
+    firstEventSeconds: [22, 32],
+    repeatEventSeconds: [150, 150],
+    changeDurationSeconds: [20, 24],
+    patienceSeconds: 45
+  },
+  loss: { panicGraceSeconds: 8, maxStrikes: 3, strikeRecoveryFillPercent: 0.3 }
+};
+
 export function withLevelOverrides(
   config: LevelConfig,
   overrides: Partial<Pick<LevelConfig, "seed" | "durationSeconds">>

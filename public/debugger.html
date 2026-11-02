@@ -3,104 +3,92 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Cabin Pressure Debugger</title>
+    <title>Cabin Pressure - The Drinks Run</title>
     <link rel="stylesheet" href="debugger.css" />
+    <script defer src="playtest.js"></script>
   </head>
   <body>
-    <header>
-      <div>
-        <p class="eyebrow">Milestone 8</p>
-        <h1>Cabin Pressure Debugger</h1>
-      </div>
-      <div class="controls" aria-label="simulation controls">
-        <label>
-          Config
-          <select id="configPicker"></select>
-        </label>
-        <label>
-          Seed
-          <input id="seedInput" type="number" min="1" step="1" />
-        </label>
-        <button id="playPause" type="button">Pause</button>
-        <label>
-          Speed
-          <select id="speed">
-            <option value="1">1x</option>
-            <option value="2" selected>2x</option>
-            <option value="5">5x</option>
-            <option value="10">10x</option>
-          </select>
-        </label>
-        <button id="step" type="button">Step</button>
-        <button id="reset" type="button">Reset</button>
-      </div>
-    </header>
-
     <main>
-      <section class="panel cabin-panel">
-        <div class="panel-heading">
-          <h2>Cabin</h2>
-          <p id="clock"></p>
+      <header>
+        <div><p class="eyebrow">Cabin Pressure / playtest</p><h1>The Drinks Run</h1></div>
+        <div class="flight-controls">
+          <button id="play" class="primary" type="button">Start flight</button>
+          <button id="retry" type="button">Retry</button>
         </div>
-        <div id="cabin" class="cabin" aria-label="schematic cabin grid"></div>
+      </header>
+
+      <section id="brief" class="panel brief" aria-label="How to play">
+        <strong>Two minutes. Sixteen passengers. One very inconvenient cart.</strong>
+        <p>Finish drinks for everyone and land with fewer than 3 incidents. Aim for a clean run.
+          Tap a seated passenger to send them to the suggested loo. Tap a loo to override.
+          You can send people early, or leave them seated until the aisle clears.</p>
+        <p><strong>Pull the cart aside</strong> to let people pass, then resume service.
+          Parking and turbulence cost service time. A diaper call means a long loo visit:
+          get the caregiver inside before their 45-second deadline.</p>
       </section>
 
-      <aside class="panel sidebar">
-        <section>
-          <h2>Selected passenger</h2>
-          <div id="selectedPassenger" class="selected-passenger">Select a passenger.</div>
-          <div id="assignmentButtons" class="assignment-buttons"></div>
-        </section>
+      <section class="hud" aria-label="Flight objectives">
+        <div><span>Landing in</span><strong id="clock">2:00</strong></div>
+        <div><span>Incidents</span><strong id="strikes">0 / 3</strong></div>
+        <div><span>Drinks served</span><strong id="service">0 / 16</strong></div>
+      </section>
+      <div id="forecast" class="forecast" role="status"></div>
+      <p id="notice" class="notice" role="status" aria-live="polite"></p>
 
-        <section>
-          <h2>Debug actions</h2>
-          <div class="debug-buttons" aria-label="debug actions">
-            <button id="startCart" type="button">Start cart</button>
-            <button id="startTurbulence" type="button">Start turbulence</button>
-            <button id="forceDiaper" type="button">Force diaper</button>
-            <button id="fillSelected" type="button">Fill selected</button>
-            <button id="emptySelected" type="button">Empty selected</button>
-            <button id="assignNeediest" type="button">Assign neediest</button>
+      <div class="game-layout">
+        <section class="panel cabin-panel" aria-label="Cabin">
+          <div class="panel-heading"><h2>Cabin</h2><span>Tap a seat to dispatch</span></div>
+          <button id="front" class="lavatory" type="button"></button>
+          <div id="cabin" class="cabin"></div>
+          <button id="rear" class="lavatory" type="button"></button>
+          <div class="selection">
+            <p id="selected"></p>
+            <div class="route-buttons">
+              <button id="sendFront" type="button">Send front</button>
+              <button id="sendRear" type="button">Send rear</button>
+            </div>
           </div>
         </section>
 
-        <section>
-          <h2>Playtest summary</h2>
-          <div id="summary" class="selected-passenger"></div>
-        </section>
+        <aside>
+          <section class="panel cart-panel">
+            <div class="panel-heading"><h2>Drink service</h2><span id="cartLocation"></span></div>
+            <p id="cartStatus"></p>
+            <button id="park" class="primary" type="button">Pull cart aside</button>
+            <p id="serviceBudget" class="hint"></p>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><h2>Calls</h2><span>Time left before trouble</span></div>
+            <p id="noCalls" class="hint">No calls. Look ahead before the rush.</p>
+            <div id="calls" class="calls"></div>
+          </section>
+        </aside>
+      </div>
 
-        <section>
-          <h2>Passenger watchlist</h2>
-          <div id="watchlist" class="watchlist"></div>
-        </section>
-
-        <section>
-          <h2>Lavatory queues</h2>
-          <div id="lavatories"></div>
-        </section>
-
-        <section>
-          <h2>Beverage cart</h2>
-          <div id="beverageCart" class="selected-passenger"></div>
-        </section>
-
-        <section>
-          <h2>Turbulence</h2>
-          <div id="turbulence" class="selected-passenger"></div>
-        </section>
-
-        <section>
-          <h2>Seed / config</h2>
-          <pre id="config"></pre>
-        </section>
-      </aside>
-
-      <section class="panel log-panel">
-        <h2>Event log</h2>
-        <ol id="eventLog"></ol>
-      </section>
+      <details class="panel">
+        <summary>Flight setup &amp; event log</summary>
+        <form id="setup">
+          <label>Seed <input id="seed" type="number" step="1" value="42" required /></label>
+          <button type="submit">Load seed</button>
+          <label>Speed <select id="speed"><option value="1">1x</option><option value="2">2x</option></select></label>
+        </form>
+        <p class="hint">Forecasts are estimates: traffic and long visits can change arrival times.
+          Space pauses. 1 / 2 sends the selected passenger front / rear. C parks or resumes the cart.</p>
+        <ol id="events"></ol>
+      </details>
     </main>
 
-    <script src="debugger.js"></script>
+    <dialog id="outcome" aria-labelledby="outcomeTitle">
+      <p class="eyebrow">Flight report</p>
+      <h2 id="outcomeTitle"></h2>
+      <p id="outcomeReason"></p>
+      <p id="outcomeStats"></p>
+      <p id="outcomeLesson" class="hint"></p>
+      <div class="route-buttons">
+        <button id="retryOutcome" class="primary" type="button">Retry this flight</button>
+        <button id="nextFlight" type="button">Next seed</button>
+      </div>
+      <button id="inspect" type="button">Inspect cabin</button>
+    </dialog>
   </body>
 </html>

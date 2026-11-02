@@ -1,5 +1,19 @@
 # Prototype architecture
 
+## Current shared implementation
+
+`src/simulation.ts` is the only rules engine. `src/playtest.ts` imports it
+directly; esbuild produces the ignored `public/playtest.js` during
+`npm run build`. GitHub Pages builds before publishing. The former standalone
+`public/debugger.js` simulation has been removed so browser and tuning runs
+cannot silently diverge on strikes, movement, or objectives.
+
+`src/dispatch.ts` supplies player-visible estimates and route suggestions.
+`src/tuning.ts` runs constrained policies against the same rules; `npm run tune`
+reports survival, clean wins, actions, service, and time-window utilization.
+
+The sections below describe the original milestone sequencing.
+
 ## Layers
 
 ```text

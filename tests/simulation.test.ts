@@ -419,7 +419,7 @@ test("passing conflicts slow aisle movement", () => {
   assert.equal(state.passengers[1]?.movementStepSecondsRemaining, 3);
 });
 
-test("passengers can panic while walking to a lavatory", () => {
+test("panic preserves a passenger's route while walking to a lavatory", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
     durationSeconds: 10,
@@ -447,13 +447,14 @@ test("passengers can panic while walking to a lavatory", () => {
   assignPassengerToLavatory(state, "P001", "front");
   tick(state, 0.25);
 
-  assert.equal(state.passengers[0]?.state, "Panic");
-  assert.equal(state.passengers[0]?.assignedLavatoryId, undefined);
-  assert.equal(state.passengers[0]?.movementSecondsRemaining, 0);
+  assert.equal(state.passengers[0]?.state, "WalkingToLavatory");
+  assert.equal(state.passengers[0]?.assignedLavatoryId, "front");
+  assert.equal(state.passengers[0]?.movementSecondsRemaining, 4.75);
+  assert.equal(state.passengers[0]?.panicSeconds, 0.25);
   assert.equal(state.events.at(-1)?.type, "panic");
 });
 
-test("passengers can panic while queued for a lavatory", () => {
+test("panic preserves a passenger's place in a lavatory queue", () => {
   const config: LevelConfig = {
     ...tinyReadableCabin,
     durationSeconds: 10,
@@ -482,9 +483,10 @@ test("passengers can panic while queued for a lavatory", () => {
   assignPassengerToLavatory(state, "P002", "front");
   tick(state, 1);
 
-  assert.equal(state.passengers[1]?.state, "Panic");
-  assert.equal(state.passengers[1]?.assignedLavatoryId, undefined);
-  assert.deepEqual(state.lavatories[0]?.queue, []);
+  assert.equal(state.passengers[1]?.state, "QueuedForLavatory");
+  assert.equal(state.passengers[1]?.assignedLavatoryId, "front");
+  assert.deepEqual(state.lavatories[0]?.queue, ["P002"]);
+  assert.equal(state.passengers[1]?.panicSeconds, 1);
   assert.equal(state.events.at(-1)?.type, "panic");
 });
 
