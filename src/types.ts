@@ -38,6 +38,7 @@ export interface PassengerMixConfig {
 
 export interface BladderConfig {
   initialFillRange: [number, number];
+  initialFillDistribution?: Array<{ weight: number; range: [number, number] }>;
   baseFillPerSecond: number;
   requestThreshold: number;
   desperateThreshold: number;
@@ -92,6 +93,8 @@ export interface BeverageCartConfig {
   bladderRateDelaySeconds: number;
   bladderRateDurationSeconds: number;
   autoStart?: boolean;
+  requiredPassengersServed?: number;
+  maneuverSeconds?: number;
 }
 
 export type BeverageCartState = "ready" | "moving" | "servicing" | "complete";
@@ -108,6 +111,7 @@ export interface BabyDiaperConfig {
   firstEventSeconds: [number, number];
   repeatEventSeconds: [number, number];
   changeDurationSeconds: [number, number];
+  patienceSeconds?: number;
 }
 
 export interface BeverageCart {
@@ -119,6 +123,8 @@ export interface BeverageCart {
   serviceSecondsRemaining: number;
   movementStepSecondsRemaining: number;
   passengerIdsServed: string[];
+  parked: boolean;
+  maneuverSecondsRemaining: number;
 }
 
 export interface Turbulence {
@@ -158,6 +164,7 @@ export interface Passenger {
   babyDiaperSecondsRemaining?: number;
   babyDiaperNeedsChange: boolean;
   babyDiaperChangeCount: number;
+  babyDiaperWaitSeconds: number;
 }
 
 export interface SimulationEvent {
@@ -180,6 +187,8 @@ export interface SimulationEvent {
     | "beverageCartServiced"
     | "beverageCartDeparted"
     | "beverageCartComplete"
+    | "beverageCartParked"
+    | "beverageCartResumed"
     | "turbulenceWarning"
     | "seatBeltSignOn"
     | "seatBeltSignOff"
@@ -212,6 +221,7 @@ export interface SimulationState {
   beverageCart?: BeverageCart;
   turbulence?: Turbulence;
   events: SimulationEvent[];
+  failureReason?: "strikes" | "service";
 }
 
 export interface SimulationSummary {

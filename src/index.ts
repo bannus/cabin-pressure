@@ -1,14 +1,21 @@
-export { tinyReadableCabin, withLevelOverrides } from "./config";
+export { tinyReadableCabin, pressureFlight, withLevelOverrides } from "./config";
 export { estimateLavatoryDemand } from "./level-metrics";
 export { botStep, chooseLavatory, runBotSimulation, urgencyScore } from "./bot";
 export type { BotOptions, BotRunResult } from "./bot";
 export { compareConfigs, defaultSeeds, runBatch } from "./batch";
 export type { BatchOptions, BatchSummary, ComparisonResult, NamedConfig } from "./batch";
 export {
+  canDispatch, cartBlocksRoute, estimateLavatoryEntry, needsHelp, recommendLavatory,
+  remainingServiceSeconds, secondsUntilAccident, serviceSlackSeconds
+} from "./dispatch";
+export { runTuningSimulation, tuningPolicies, tuningStep } from "./tuning";
+export type { TuningPolicy, TuningResult } from "./tuning";
+export {
   assignPassengerToLavatory,
   createInitialState,
   runSimulation,
   startBeverageCart,
+  setBeverageCartParked,
   startTurbulence,
   summarize,
   tick

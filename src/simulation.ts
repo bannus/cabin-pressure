@@ -31,10 +31,19 @@ export function createInitialState(config: LevelConfig): SimulationState {
   const passengers = seats.map((seat, index): Passenger => {
     const archetype = archetypes[index] ?? "normal";
     const definition = ARCHETYPES[archetype];
-    const initialFillPercent = rng.range(
-      config.bladder.initialFillRange[0],
-      config.bladder.initialFillRange[1]
-    );
+    const distribution = config.bladder.initialFillDistribution;
+    let fillRange = config.bladder.initialFillRange;
+    if (distribution !== undefined) {
+      let weight = rng.range(0, distribution.reduce((sum, bucket) => sum + bucket.weight, 0));
+      for (const bucket of distribution) {
+        weight -= bucket.weight;
+        if (weight < 0) {
+          fillRange = bucket.range;
+          break;
+        }
+      }
+    }
+    const initialFillPercent = rng.range(fillRange[0], fillRange[1]);
 
     return {
       id: `P${String(index + 1).padStart(3, "0")}`,
@@ -60,7 +69,8 @@ export function createInitialState(config: LevelConfig): SimulationState {
           ? babyDiaperEventSeconds(config, `first:${index + 1}`)
           : undefined,
       babyDiaperNeedsChange: false,
-      babyDiaperChangeCount: 0
+      babyDiaperChangeCount: 0,
+      babyDiaperWaitSeconds: 0
     };
   });
 
@@ -102,6 +112,9 @@ export function tick(state: SimulationState, dt: number): SimulationState {
   state.time = Math.min(state.time + elapsedSeconds, state.config.durationSeconds);
 
   updateLavatoryProgress(state, elapsedSeconds);
+  if (state.status !== "running") {
+    return state;
+  }
 
   for (const passenger of state.passengers) {
     if (passenger.state === "UsingLavatory") {
@@ -115,8 +128,15 @@ export function tick(state: SimulationState, dt: number): SimulationState {
   }
 
   if (state.status === "running" && state.time >= state.config.durationSeconds) {
-    state.status = "won";
-    addEvent(state, "win", `Landed with ${state.strikes} strike(s).`);
+    const required = state.config.beverageCart?.requiredPassengersServed ?? 0;
+    if ((state.beverageCart?.passengerIdsServed.length ?? 0) < required) {
+      state.status = "lost";
+      state.failureReason = "service";
+      addEvent(state, "loss", `Landed before drink service reached ${required} passengers.`);
+    } else {
+      state.status = "won";
+      addEvent(state, "win", `Landed with ${state.strikes} strike(s).`);
+    }
   }
 
   return state;
@@ -156,6 +176,18 @@ export function assignPassengerToLavatory(
     throw new Error(`${passenger.id} cannot be reassigned while ${passenger.state}`);
   }
 
+  if (passenger.assignedLavatoryId === lavatory.id) {
+    return state;
+  }
+  if (passenger.aisleRow !== undefined && passenger.assignedLavatoryId !== undefined &&
+      (passenger.state === "WalkingToLavatory" || passenger.state === "QueuedForLavatory")) {
+    removeFromLavatoryQueue(state, passenger.id);
+    passenger.assignedLavatoryId = lavatory.id;
+    passenger.state = "WalkingToLavatory";
+    startAisleMovement(state, passenger, lavatory.row, passenger.aisleRow);
+    addEvent(state, "lavatoryRerouted", `${passenger.id} rerouted to ${lavatory.id}.`, passenger.id, lavatory.id);
+    return state;
+  }
   stopBlockingForAssignment(state, passenger);
   const previousLavatoryId = passenger.assignedLavatoryId;
   if (previousLavatoryId !== undefined) {
@@ -199,6 +231,9 @@ export function startBeverageCart(state: SimulationState): SimulationState {
 
   if (cart.state !== "ready") {
     if (cart.state === "complete") {
+      if ((state.config.beverageCart?.requiredPassengersServed ?? 0) > 0) {
+        throw new Error("drink service is already complete");
+      }
       resetBeverageCart(cart, requireBeverageCartConfig(state));
     } else {
       return state;
@@ -219,6 +254,29 @@ export function startBeverageCart(state: SimulationState): SimulationState {
     `${cart.id} beverage cart started service at row ${cart.currentAisleRow}.`
   );
   startBeverageRowService(state, cart);
+  refreshAisleCells(state);
+  return state;
+}
+
+export function setBeverageCartParked(state: SimulationState, parked: boolean): SimulationState {
+  const cart = state.beverageCart;
+  if (state.status !== "running" || cart === undefined ||
+      (cart.state !== "moving" && cart.state !== "servicing")) {
+    throw new Error("only an active beverage cart can be parked or resumed");
+  }
+  if (isSeatBeltSignOn(state)) {
+    throw new Error("the cart is stowed while the seat belt sign is on");
+  }
+  if (cart.parked === parked) {
+    return state;
+  }
+  if (cart.maneuverSecondsRemaining > 0) {
+    throw new Error("wait for the cart maneuver to finish");
+  }
+  cart.parked = parked;
+  cart.maneuverSecondsRemaining = state.config.beverageCart?.maneuverSeconds ?? 2;
+  addEvent(state, parked ? "beverageCartParked" : "beverageCartResumed",
+    parked ? "Cart pulled aside: aisle clear, drink service paused." : "Cart resumed drink service.");
   refreshAisleCells(state);
   return state;
 }
@@ -274,7 +332,7 @@ export function summarize(state: SimulationState, urgentLimit = 5): SimulationSu
     time: state.time,
     status: state.status,
     strikes: state.strikes,
-    panicCount: state.passengers.filter((passenger) => passenger.state === "Panic").length,
+    panicCount: state.passengers.filter((passenger) => bladderPercent(passenger) >= 1 && passenger.state !== "UsingLavatory").length,
     needsToGoCount: state.passengers.filter((passenger) => passenger.state === "NeedsToGo").length,
     averageBladderPercent,
     aisleCells: state.aisleCells.map((cell) => ({
@@ -307,6 +365,8 @@ function resetBeverageCart(cart: BeverageCart, cartConfig: NonNullable<LevelConf
   cart.serviceSecondsRemaining = 0;
   cart.movementStepSecondsRemaining = 0;
   cart.passengerIdsServed = [];
+  cart.parked = false;
+  cart.maneuverSecondsRemaining = 0;
 }
 
 export function bladderPercent(passenger: Passenger): number {
@@ -317,6 +377,9 @@ function updateLavatoryProgress(state: SimulationState, dt: number): void {
   updateTurbulenceProgress(state, dt);
   updateBeverageCartProgress(state, dt);
   updateBabyDiaperProgress(state, dt);
+  if (state.status !== "running") {
+    return;
+  }
   updateSeatBlockerProgress(state, dt);
 
   for (const passenger of state.passengers) {
@@ -402,7 +465,6 @@ function updateSeatBlockerProgress(state: SimulationState, dt: number): void {
     );
     if (
       blockedPassenger === undefined ||
-      blockedPassenger.state === "Panic" ||
       blockedPassenger.aisleRow !== blocker.row ||
       blockedPassenger.destinationAisleRow === undefined
     ) {
@@ -677,6 +739,7 @@ function finishLavatoryUse(state: SimulationState, lavatory: Lavatory, passenger
   passenger.lavatorySecondsRemaining = 0;
   if (passenger.babyDiaperNeedsChange) {
     passenger.babyDiaperNeedsChange = false;
+    passenger.babyDiaperWaitSeconds = 0;
     passenger.babyDiaperChangeCount += 1;
     passenger.babyDiaperSecondsRemaining = babyDiaperEventSeconds(
       state.config,
@@ -723,28 +786,23 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
         passenger.id
       );
     }
-    if (nextState === "Panic") {
-      abandonLavatoryAssignment(state, passenger);
-      passenger.panicSeconds = 0;
-      addEvent(
-        state,
-        "panic",
-        `${passenger.id} at ${passenger.row}${passenger.seat} is in panic.`,
-        passenger.id
-      );
-    }
   }
 
-  if (passenger.state === "Panic") {
+  // Urgency is independent of locomotion: commands cannot reset this clock.
+  if (percent >= 1) {
+    if (passenger.panicSeconds === 0) {
+      addEvent(state, "panic", `${passenger.id} at ${passenger.row}${passenger.seat} is in panic.`, passenger.id);
+    }
     passenger.panicSeconds += dt;
+  } else {
+    passenger.panicSeconds = 0;
   }
 
   if (
-    passenger.state === "Panic" &&
+    percent >= 1 &&
     passenger.panicSeconds >= state.config.loss.panicGraceSeconds
   ) {
-    state.strikes += 1;
-    passenger.strikeCount += 1;
+    abandonLavatoryAssignment(state, passenger);
     passenger.rawBladder = passenger.capacity * state.config.loss.strikeRecoveryFillPercent;
     passenger.panicSeconds = 0;
     passenger.state =
@@ -753,18 +811,7 @@ function updatePassengerBladder(state: SimulationState, passenger: Passenger, dt
         ? "NeedsToGo"
         : "Seated";
 
-    addEvent(
-      state,
-      "strike",
-      `${passenger.id} caused strike ${state.strikes}/${state.config.loss.maxStrikes}.`,
-      passenger.id
-    );
-
-    if (state.strikes >= state.config.loss.maxStrikes) {
-      state.status = "lost";
-      addEvent(state, "loss", `Flight failed after ${state.strikes} strike(s).`);
-      return true;
-    }
+    return recordStrike(state, passenger, "could not wait any longer");
   }
 
   return false;
@@ -775,9 +822,6 @@ function nextPassengerState(
   passenger: Passenger,
   percent: number
 ): PassengerState {
-  if (percent >= 1) {
-    return "Panic";
-  }
   if (passenger.babyDiaperNeedsChange && passenger.state === "Seated") {
     return "NeedsToGo";
   }
@@ -791,7 +835,7 @@ function nextPassengerState(
   ) {
     return passenger.state;
   }
-  if (passenger.state === "Panic") {
+  if (percent >= 1) {
     return "Panic";
   }
   if (passenger.babyDiaperNeedsChange) {
@@ -925,7 +969,8 @@ function isBeverageCartBlockingAisleStep(state: SimulationState, passenger: Pass
   }
 
   const cart = state.beverageCart;
-  if (cart === undefined || (cart.state !== "moving" && cart.state !== "servicing")) {
+  if (cart === undefined || cart.parked || isSeatBeltSignOn(state) ||
+      (cart.state !== "moving" && cart.state !== "servicing")) {
     return false;
   }
 
@@ -983,6 +1028,7 @@ function refreshAisleCells(state: SimulationState): void {
   state.aisleCells = buildAisleCells(state.config, state.passengers);
   if (
     state.beverageCart !== undefined &&
+    !state.beverageCart.parked && !isSeatBeltSignOn(state) &&
     (state.beverageCart.state === "moving" || state.beverageCart.state === "servicing")
   ) {
     const cartCell = state.aisleCells.find(
@@ -1007,7 +1053,9 @@ function buildBeverageCart(config: LevelConfig): BeverageCart | undefined {
     serviceRowIndex: 0,
     serviceSecondsRemaining: 0,
     movementStepSecondsRemaining: 0,
-    passengerIdsServed: []
+    passengerIdsServed: [],
+    parked: false,
+    maneuverSecondsRemaining: 0
   };
 }
 
@@ -1030,6 +1078,22 @@ function updateBabyDiaperProgress(state: SimulationState, dt: number): void {
   }
 
   for (const passenger of state.passengers) {
+    if (passenger.babyDiaperNeedsChange) {
+      if (passenger.state !== "UsingLavatory") {
+        passenger.babyDiaperWaitSeconds += dt;
+        const patience = state.config.babyDiaper.patienceSeconds;
+        if (patience !== undefined && passenger.babyDiaperWaitSeconds >= patience) {
+          passenger.babyDiaperNeedsChange = false;
+          passenger.babyDiaperWaitSeconds = 0;
+          passenger.babyDiaperSecondsRemaining = babyDiaperEventSeconds(
+            state.config, `repeat:${passenger.id}:${passenger.babyDiaperChangeCount}`);
+          if (recordStrike(state, passenger, "waited too long for a diaper change")) {
+            return;
+          }
+        }
+      }
+      continue;
+    }
     if (
       passenger.archetype !== "babyAttachedAdult" ||
       passenger.babyDiaperNeedsChange ||
@@ -1044,6 +1108,7 @@ function updateBabyDiaperProgress(state: SimulationState, dt: number): void {
     }
 
     passenger.babyDiaperNeedsChange = true;
+    passenger.babyDiaperWaitSeconds = 0;
     passenger.babyDiaperSecondsRemaining = undefined;
     if (passenger.state === "Seated") {
       passenger.state = "NeedsToGo";
@@ -1183,6 +1248,15 @@ function updateBeverageCartProgress(state: SimulationState, dt: number): void {
   if (cart === undefined) {
     return;
   }
+  if (isSeatBeltSignOn(state)) {
+    return;
+  }
+  const maneuverTime = Math.min(dt, cart.maneuverSecondsRemaining);
+  cart.maneuverSecondsRemaining -= maneuverTime;
+  dt -= maneuverTime;
+  if (cart.parked || dt <= 0) {
+    return;
+  }
 
   if (cart.state === "servicing") {
     cart.serviceSecondsRemaining = Math.max(0, cart.serviceSecondsRemaining - dt);
@@ -1253,7 +1327,9 @@ function finishBeverageRowService(state: SimulationState, cart: BeverageCart): v
     passenger.beverageRateModifierStartSeconds = state.time + cartConfig.bladderRateDelaySeconds;
     passenger.beverageRateModifierEndSeconds =
       passenger.beverageRateModifierStartSeconds + cartConfig.bladderRateDurationSeconds;
-    cart.passengerIdsServed.push(passenger.id);
+    if (!cart.passengerIdsServed.includes(passenger.id)) {
+      cart.passengerIdsServed.push(passenger.id);
+    }
   }
 
   addEvent(
@@ -1395,7 +1471,17 @@ function validateConfig(config: LevelConfig): void {
   if (config.bladder.initialFillRange[0] > config.bladder.initialFillRange[1]) {
     throw new Error("initialFillRange minimum must be <= maximum");
   }
-  if (config.bladder.baseFillPerSecond < 0) {
+  if (config.bladder.initialFillDistribution !== undefined) {
+    const buckets = config.bladder.initialFillDistribution;
+    if (buckets.length === 0 || !buckets.some((bucket) => bucket.weight > 0) ||
+        !Number.isFinite(buckets.reduce((sum, bucket) => sum + bucket.weight, 0)) ||
+        buckets.some((bucket) => !Number.isFinite(bucket.weight) || bucket.weight < 0 ||
+          !isUnitInterval(bucket.range[0]) || !isUnitInterval(bucket.range[1]) ||
+          bucket.range[0] > bucket.range[1])) {
+      throw new Error("initialFillDistribution must have valid weighted ranges and positive total weight");
+    }
+  }
+  if (!Number.isFinite(config.bladder.baseFillPerSecond) || config.bladder.baseFillPerSecond < 0) {
     throw new Error("bladder.baseFillPerSecond must be non-negative");
   }
   if (
@@ -1430,6 +1516,16 @@ function validateConfig(config: LevelConfig): void {
     throw new Error("seat blocker timings must be non-negative");
   }
   if (config.beverageCart !== undefined) {
+    const cart = config.beverageCart;
+    const required = cart.requiredPassengersServed ?? 0;
+    const validRows = cart.serviceRows.filter((row) => row >= 1 && row <= config.aircraft.rows);
+    const reachableSeats = new Set(validRows).size * config.aircraft.seatLayout.length;
+    if (!Number.isInteger(required) || required < 0 || required > reachableSeats) {
+      throw new Error("beverageCart.requiredPassengersServed must fit the serviced seats");
+    }
+    if (!Number.isFinite(cart.maneuverSeconds ?? 0) || (cart.maneuverSeconds ?? 0) < 0) {
+      throw new Error("beverageCart.maneuverSeconds must be non-negative and finite");
+    }
     if (config.beverageCart.serviceRows.length < 1) {
       throw new Error("beverageCart.serviceRows must contain rows");
     }
@@ -1478,6 +1574,10 @@ function validateConfig(config: LevelConfig): void {
     }
   }
   if (config.babyDiaper !== undefined) {
+    if (config.babyDiaper.patienceSeconds !== undefined &&
+        (!Number.isFinite(config.babyDiaper.patienceSeconds) || config.babyDiaper.patienceSeconds <= 0)) {
+      throw new Error("babyDiaper.patienceSeconds must be positive and finite");
+    }
     validateNonNegativeRange(config.babyDiaper.firstEventSeconds, "babyDiaper.firstEventSeconds");
     validateNonNegativeRange(config.babyDiaper.repeatEventSeconds, "babyDiaper.repeatEventSeconds");
     if (
@@ -1507,6 +1607,19 @@ function validateConfig(config: LevelConfig): void {
 
 function isUnitInterval(value: number): boolean {
   return Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function recordStrike(state: SimulationState, passenger: Passenger, reason: string): boolean {
+  state.strikes += 1;
+  passenger.strikeCount += 1;
+  addEvent(state, "strike", `${passenger.row}${passenger.seat} ${reason}. Strike ${state.strikes}/${state.config.loss.maxStrikes}.`, passenger.id);
+  if (state.strikes >= state.config.loss.maxStrikes) {
+    state.status = "lost";
+    state.failureReason = "strikes";
+    addEvent(state, "loss", `Flight failed after ${state.strikes} strike(s).`);
+    return true;
+  }
+  return false;
 }
 
 function toUrgency(passenger: Passenger): PassengerUrgency {

@@ -4,7 +4,9 @@
   "description": "Deterministic cabin logistics simulation prototype.",
   "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:web --silent",
+    "build:web": "esbuild src/playtest.ts --bundle --platform=browser --target=es2022 --outfile=public/playtest.js",
+    "tune": "npm run build --silent && node dist/src/tune-cli.js",
     "debugger": "npm run build --silent && node dist/src/debug-server.js",
     "simulate": "npm run build --silent && node dist/src/cli.js",
     "bot": "npm run build --silent && node dist/src/bot-cli.js",
@@ -28,6 +30,7 @@
   },
   "homepage": "https://github.com/bannus/cabin-pressure#readme",
   "devDependencies": {
+    "esbuild": "^0.25.0",
     "@types/node": "^25.9.1",
     "typescript": "^6.0.3"
   }

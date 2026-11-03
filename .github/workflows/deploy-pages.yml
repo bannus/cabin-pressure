@@ -7,6 +7,10 @@ on:
       - master
     paths:
       - public/**
+      - src/**
+      - package.json
+      - package-lock.json
+      - tsconfig.json
       - .github/workflows/deploy-pages.yml
   workflow_dispatch:
 
@@ -33,6 +37,13 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci && npm run build
 
       - name: Upload static debugger
         uses: actions/upload-pages-artifact@v3

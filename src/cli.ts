@@ -1,10 +1,11 @@
-import { tinyReadableCabin, withLevelOverrides } from "./config";
+import { tinyReadableCabin, pressureFlight, withLevelOverrides } from "./config";
 import { estimateLavatoryDemand } from "./level-metrics";
 import { createInterface } from "node:readline";
 import {
   assignPassengerToLavatory,
   createInitialState,
   startBeverageCart,
+  setBeverageCartParked,
   startTurbulence,
   summarize,
   tick
@@ -16,6 +17,7 @@ interface CliOptions {
   dt: number;
   summaryInterval: number;
   interactive: boolean;
+  playtest: boolean;
   assignments: Array<{ passengerId: string; lavatoryId: string }>;
 }
 
@@ -26,7 +28,7 @@ void run().catch((error: unknown) => {
 });
 async function run(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const config = withLevelOverrides(tinyReadableCabin, {
+  const config = withLevelOverrides(options.playtest ? pressureFlight : tinyReadableCabin, {
     seed: options.seed,
     durationSeconds: options.duration
   });
@@ -71,6 +73,7 @@ async function run(): Promise<void> {
   console.log("");
   console.log(
     `Result: ${state.status.toUpperCase()} with ${state.strikes} strike(s).` +
+      (state.failureReason === "service" ? " Drink service incomplete." : "") +
       (options.interactive && state.status === "running" ? " (quit early)" : "")
   );
 
@@ -162,6 +165,11 @@ async function run(): Promise<void> {
             printNewEvents();
             continue;
           }
+          if (command.type === "parkCart" || command.type === "resumeCart") {
+            setBeverageCartParked(state, command.type === "parkCart");
+            printNewEvents();
+            continue;
+          }
           if (command.type === "startTurbulence") {
             startTurbulence(state);
             printNewEvents();
@@ -217,7 +225,7 @@ async function run(): Promise<void> {
     if (summary.beverageCart !== undefined) {
       console.log(
         `  cart: ${summary.beverageCart.state} row=${summary.beverageCart.currentAisleRow} ` +
-          `dest=${summary.beverageCart.destinationAisleRow ?? "-"} served=${
+          `dest=${summary.beverageCart.destinationAisleRow ?? "-"} parked=${summary.beverageCart.parked} served=${
             summary.beverageCart.passengerIdsServed.length
           }`
       );
@@ -246,6 +254,8 @@ type InteractiveCommand =
   | { type: "resume" }
   | { type: "quit" }
   | { type: "startCart" }
+  | { type: "parkCart" }
+  | { type: "resumeCart" }
   | { type: "startTurbulence" }
   | { type: "assign"; passengerId: string; lavatoryId: string };
 
@@ -271,6 +281,8 @@ function parseInteractiveCommand(raw: string): InteractiveCommand {
   if ((command === "cart" && args[0] === "start") || command === "start-cart") {
     return { type: "startCart" };
   }
+  if (command === "cart" && args[0] === "park") return { type: "parkCart" };
+  if (command === "cart" && args[0] === "resume") return { type: "resumeCart" };
   if ((command === "turbulence" && args[0] === "start") || command === "start-turbulence") {
     return { type: "startTurbulence" };
   }
@@ -295,6 +307,8 @@ function printInteractiveHelp(): void {
   console.log(`  assign PASSENGER_ID LAVATORY_ID`);
   console.log(`  assign PASSENGER_ID:LAVATORY_ID`);
   console.log(`  cart start`);
+  console.log(`  cart park`);
+  console.log(`  cart resume`);
   console.log(`  turbulence start`);
   console.log(`  pause`);
   console.log(`  resume`);
@@ -312,6 +326,7 @@ function parseArgs(args: string[]): CliOptions {
     dt: 0.1,
     summaryInterval: 10,
     interactive: false,
+    playtest: false,
     assignments: []
   };
 
@@ -332,6 +347,8 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
     } else if (arg === "--interactive") {
       parsed.interactive = true;
+    } else if (arg === "--playtest") {
+      parsed.playtest = true;
     } else if (arg === "--assign" && value !== undefined) {
       const assignmentParts = value.split(":");
       if (assignmentParts.length !== 2 || assignmentParts.some((part) => part.length === 0)) {

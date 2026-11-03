@@ -14,7 +14,7 @@ logic.
 - `aircraft.lavatories`
 - `passengerMix`
 - `bladder.initialFillRange`
-- future: `bladder.initialFillDistribution`
+- `bladder.initialFillDistribution` (optional weighted ranges; supersedes uniform range)
 - `bladder.baseFillPerSecond`
 - `bladder.requestThreshold`
 - `bladder.desperateThreshold`
@@ -26,7 +26,73 @@ logic.
 - `loss.maxStrikes`
 - `loss.strikeRecoveryFillPercent`
 
-## First implemented level
+## Current playtest: The Drinks Run
+
+`pressureFlight` in `src/config.ts` is the browser default. The legacy level
+below remains a separate regression fixture, not the current balance target.
+
+- 4 rows, 16 passengers, two loos, 120 seconds, default seed 42
+- initial fill weights: 5 at 15–40%, 3 at 40–65%, 2 at 65–78%
+- request at 65%; baseline normal fill time 180 seconds; 8-second panic grace
+- loo visits 8–12 seconds; caregiver visits 20–24 seconds
+- cart service 17–19 seconds per row; 2 seconds per parking/resume maneuver
+- all 16 passengers must be served by landing
+- warning at 45 seconds; mandatory seat belts at 65 seconds for 10 seconds
+- one caregiver call at 22–32 seconds, with 45 seconds to reach a loo
+- three strikes lose; strike recovery 30%; repeat diaper call beyond this flight
+
+Additional configuration fields:
+
+- `beverageCart.requiredPassengersServed` (default 0, preserving legacy survival-only levels)
+- `beverageCart.maneuverSeconds` (default 2 for cart commands)
+- `babyDiaper.patienceSeconds` (omitted means no diaper timeout in legacy levels)
+
+### Tuning procedure and results
+
+`npm run tune -- --sweep --seeds 50 --json` compares 160/180/200-second
+normal fill times and 8–12/10–14/12–16-second loo durations. Further
+experiments compared 6/8/10-second grace and 15–17/17–19-second row service
+on seeds 1000–1099. Longer loo visits tended to saturate the rush without
+reliably increasing the advantage of planning; the selected scenario uses
+short visits and a tighter cart budget instead.
+
+Each policy can issue at most one command every two seconds, including
+cart commands. Reactive dispatch uses requests and nearest distance;
+assisted dispatch uses the same route suggestions as the browser.
+The planner dispatches by estimated deadline, accounts for inbound loo
+reservations and the warning, and parks when endangered traffic crosses the
+cart, while preserving service slack. It uses no future RNG draws.
+
+Final comparison, **200 additional seeds 10000–10199**, reproducible with
+`npm run tune -- --seeds 200 --base-seed 10000`:
+
+| Policy | Wins | Clean wins | Mean strikes | Mean commands |
+|---|---:|---:|---:|---:|
+| Hands-off | 0/200 | 0/200 | 3.00 | 0 |
+| Reactive nearest loo | 180/200 | 52/200 | 1.19 | 21.72 |
+| Reactive UI-assisted routing | 174/200 | 55/200 | 1.21 | 21.86 |
+| Planner with cart control | 195/200 | 164/200 | 0.25 | 21.86 |
+| Planner, never park | 144/200 | 40/200 | 1.58 | 12.21 |
+| Planner, permanently parked | 0/200 | 0/200 | 0.01 | 11.37 |
+
+Permanent parking loses on service, not bladder pressure. The planner's
+mean loo occupancy per 30-second window is 36%, 82%, 52%, 37%, indicating
+a rush and recovery rather than whole-flight saturation. Mean parking is
+15.24 seconds; longest observed queue is three vs four for assisted play.
+There is an initial call within 10 seconds in the tested sample.
+
+Seed 42 is a forgiving first flight: the planner has a clean landing with
+20 commands, and nearest-loo reactive play survives with one strike and
+21 commands. In the browser, assisted reactive play can also clear this seed
+cleanly. Retry and next-seed controls let players explore beyond this opener.
+
+These are deterministic policy comparisons, not evidence of human enjoyment.
+Human playtests should check whether players understand why a trip failed,
+notice the parking/service tradeoff, choose to hold or release passengers
+differently on retry, and want another flight. Survival is intentionally
+forgiving; clean flights are the mastery target.
+
+## First implemented (legacy) level
 
 `tiny-readable-cabin`:
 
@@ -124,8 +190,10 @@ timing mistakes are included.
 
 ## Future fields
 
-Later milestones should add row exit timings, weighted initial bladder
-distribution, and bot tuning parameters.
+Possible future experiments include seatmate batch release and alternate
+aircraft layouts. Weighted fills and command-rate-limited policy comparisons
+are implemented; additional simulation complexity should wait for human
+feedback on the current short scenario.
 
 ## Future improvement candidates (demand variability)
 
